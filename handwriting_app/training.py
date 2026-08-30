@@ -1,22 +1,36 @@
-"""Training mode: prompt the user to write words and save (ink, label) samples.
+"""Training / enrollment mode.
 
-Launch with ``./run.sh --train``. Collect ~150-300 samples, then fine-tune with
-``scripts/finetune_trocr.py`` on a machine with a GPU (or patience).
+``./run.sh --train`` runs a guided ~40-prompt enrollment (progress bar, timer,
+time-remaining estimate, letter/digit coverage). It's designed to gather enough
+handwriting to adapt the model in under five minutes.
+
+``--freeform`` or ``--prompts-file FILE`` switches to the open-ended word list.
 """
 
 from __future__ import annotations
 
+import math
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont
+from typing import List
 
 from handwriting_app.canvas_widget import InkCanvas
 from handwriting_app.config import AppConfig
-from handwriting_app.dataset import count_samples, save_sample
+from handwriting_app.dataset import count_samples, iter_samples, save_sample
+from handwriting_app.enrollment import (
+    ENROLLMENT_PROMPTS,
+    Coverage,
+    char_coverage,
+    is_enrolled,
+)
 from handwriting_app.prompts import load_prompts
+from handwriting_app.widgets import ProgressBar
 
 _BG = "#1e1e1e"
 _FG = "#f0f0f0"
+_MUTED = "#9a9a9a"
 
 
 class TrainingApp(tk.Tk):
@@ -25,17 +39,25 @@ class TrainingApp(tk.Tk):
         self.cfg = config
         self.samples_dir = config.samples_dir
 
-        try:
-            self.prompts = load_prompts(config.prompts_file or None)
-        except OSError as exc:
-            raise SystemExit(f"Could not read prompts: {exc}")
+        self.enroll = not (config.freeform or config.prompts_file)
+        if self.enroll:
+            self.prompts: List[str] = list(ENROLLMENT_PROMPTS)
+            self.target = config.enroll_target or len(self.prompts)
+        else:
+            try:
+                self.prompts = load_prompts(config.prompts_file or None)
+            except OSError as exc:
+                raise SystemExit(f"Could not read prompts: {exc}")
+            self.target = len(self.prompts)
         if not self.prompts:
             raise SystemExit("Prompt list is empty.")
 
-        self.saved = count_samples(self.samples_dir)
-        self.index = min(self.saved, len(self.prompts))
+        self.index = min(count_samples(self.samples_dir), len(self.prompts))
+        self.session_saved = 0
+        self._start = time.monotonic()
+        self._tick_job = None
 
-        self.title("Handwriting → Text · training")
+        self.title("Handwriting → Text · enrollment")
         self.configure(bg=_BG)
         self.geometry("1024x600")
         self.minsize(800, 480)
@@ -45,15 +67,18 @@ class TrainingApp(tk.Tk):
         self._bind_keys()
         if config.fullscreen:
             self._set_fullscreen(True)
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
-        self._show_current()
+        self.protocol("WM_DELETE_WINDOW", self._quit)
 
-    # -- setup ---------------------------------------------------------------
+        self._refresh()
+        self._tick()
+
+    # -- setup ------------------------------------------------------------
     def _build_fonts(self) -> None:
         scale = self.cfg.font_scale
         self.f_prompt = tkfont.Font(family="DejaVu Sans", size=max(20, int(34 * scale)), weight="bold")
         self.f_button = tkfont.Font(family="DejaVu Sans", size=max(9, int(15 * scale)), weight="bold")
         self.f_meta = tkfont.Font(family="DejaVu Sans", size=max(9, int(12 * scale)))
+        self.f_bar = tkfont.Font(family="DejaVu Sans", size=max(9, int(13 * scale)), weight="bold")
 
     def _button(self, parent, text, command, bg="#3a3a3a"):
         return tk.Button(
@@ -64,43 +89,53 @@ class TrainingApp(tk.Tk):
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
 
-        header = tk.Frame(self, bg=_BG)
-        header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 4))
-        self.progress = tk.Label(header, text="", font=self.f_meta, bg=_BG, fg="#9a9a9a", anchor="w")
-        self.progress.pack(side="left")
+        top = tk.Frame(self, bg=_BG)
+        top.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 2))
+        top.columnconfigure(0, weight=1)
+
+        self.bar = ProgressBar(top, font=self.f_bar, bg=_BG)
+        self.bar.grid(row=0, column=0, columnspan=2, sticky="ew")
+
+        self.count_label = tk.Label(top, text="", font=self.f_meta, bg=_BG, fg=_MUTED, anchor="w")
+        self.count_label.grid(row=1, column=0, sticky="w", pady=(3, 0))
+        self.time_label = tk.Label(top, text="", font=self.f_meta, bg=_BG, fg=_MUTED, anchor="e")
+        self.time_label.grid(row=1, column=1, sticky="e", pady=(3, 0))
+        self.coverage_label = tk.Label(top, text="", font=self.f_meta, bg=_BG, fg=_MUTED, anchor="w")
+        self.coverage_label.grid(row=2, column=0, columnspan=2, sticky="w")
+
         self.prompt_label = tk.Label(self, text="", font=self.f_prompt, bg=_BG, fg=_FG)
-        self.prompt_label.grid(row=0, column=0, columnspan=2, pady=(28, 6))
+        self.prompt_label.grid(row=1, column=0, columnspan=2, pady=(14, 6))
 
         self.canvas = InkCanvas(self, stroke_width=self.cfg.stroke_width)
-        self.canvas.grid(row=1, column=0, sticky="nsew", padx=(12, 6), pady=8)
+        self.canvas.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=8)
 
         panel = tk.Frame(self, bg=_BG)
-        panel.grid(row=1, column=1, sticky="ns", padx=(6, 12), pady=8)
+        panel.grid(row=2, column=1, sticky="ns", padx=(6, 12), pady=8)
         self.btn_save = self._button(panel, "Save & next", self._save_and_next, bg="#2f9e44")
-        widgets = [
+        for widget in (
             self.btn_save,
             self._button(panel, "Skip", self._skip),
             self._button(panel, "Undo stroke", self._undo),
             self._button(panel, "Clear pad", self.canvas.clear),
-            self._button(panel, "Exit", self.destroy, bg="#555555"),
-        ]
-        for widget in widgets:
+            self._button(panel, "Finish", self._quit, bg="#555555"),
+        ):
             widget.pack(fill="x", pady=4)
 
         self.status = tk.Label(
             self, text=f"Saving to {Path(self.samples_dir).resolve()}",
-            font=self.f_meta, bg=_BG, fg="#9a9a9a", anchor="w",
+            font=self.f_meta, bg=_BG, fg=_MUTED, anchor="w",
         )
-        self.status.grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+        self.status.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
 
     def _bind_keys(self) -> None:
         self.bind("<Return>", lambda _e: self._save_and_next())
+        self.bind("<space>", lambda _e: self._save_and_next())
         self.bind("<Control-z>", lambda _e: self._undo())
         self.bind("<F11>", lambda _e: self._set_fullscreen(not self._is_fullscreen()))
         self.bind("<Escape>", lambda _e: self._set_fullscreen(False))
-        self.bind("<Control-q>", lambda _e: self.destroy())
+        self.bind("<Control-q>", lambda _e: self._quit())
 
     def _is_fullscreen(self) -> bool:
         try:
@@ -114,25 +149,56 @@ class TrainingApp(tk.Tk):
         except tk.TclError:
             pass
 
-    # -- flow --------------------------------------------------------------
+    # -- state ----------------------------------------------------------
     def _finished(self) -> bool:
         return self.index >= len(self.prompts)
 
-    def _show_current(self) -> None:
+    def _coverage(self) -> Coverage:
+        return char_coverage(s.label for s in iter_samples(self.samples_dir))
+
+    def _refresh(self) -> None:
+        self.bar.set(self.session_saved / self.target if self.target else 0.0)
+
         total = len(self.prompts)
+        self.count_label.config(
+            text=f"{self.session_saved} / {self.target} this session"
+            + ("" if self.session_saved < self.target else "  —  goal reached")
+        )
+
+        if self.enroll:
+            coverage = self._coverage()
+            enrolled = is_enrolled(self.session_saved, coverage, self.target)
+            self.coverage_label.config(
+                text=("enrolled ✓   " if enrolled else "") + coverage.summary()
+            )
+            self.btn_save.config(bg="#2d6cdf" if enrolled else "#2f9e44")
+        else:
+            self.coverage_label.config(text="")
+
         if self._finished():
             self.prompt_label.config(text="All prompts done — thank you!")
-            self.progress.config(text=f"{self.saved} samples saved")
             self.btn_save.config(state="disabled")
-            return
-        self.prompt_label.config(text=f"“{self.prompts[self.index]}”")
-        self.progress.config(text=f"{self.index + 1} / {total}   ·   {self.saved} saved")
+        else:
+            self.prompt_label.config(text=f"“{self.prompts[self.index]}”")
 
+    def _tick(self) -> None:
+        elapsed = time.monotonic() - self._start
+        text = _fmt_mmss(elapsed)
+        remaining = max(0, self.target - self.session_saved)
+        if remaining and self.session_saved >= 3:
+            per = elapsed / self.session_saved
+            text += f"   ·   ~{max(1, math.ceil(remaining * per / 60))} min left"
+        elif not remaining:
+            text += "   ·   done"
+        self.time_label.config(text=text)
+        self._tick_job = self.after(1000, self._tick)
+
+    # -- actions ------------------------------------------------------
     def _save_and_next(self) -> None:
         if self._finished():
             return
         if self.canvas.ink.is_empty:
-            self.status.config(text="Write the prompt first, then Save & next")
+            self.status.config(text="Write the prompt first")
             return
         label = self.prompts[self.index]
         try:
@@ -143,11 +209,11 @@ class TrainingApp(tk.Tk):
         except OSError as exc:
             self.status.config(text=f"Save failed: {exc}")
             return
-        self.saved += 1
+        self.session_saved += 1
         self.index += 1
         self.canvas.clear()
         self.status.config(text=f"Saved {path.name}")
-        self._show_current()
+        self._refresh()
 
     def _skip(self) -> None:
         if self._finished():
@@ -155,11 +221,21 @@ class TrainingApp(tk.Tk):
         self.index += 1
         self.canvas.clear()
         self.status.config(text="Skipped")
-        self._show_current()
+        self._refresh()
 
     def _undo(self) -> None:
         if not self.canvas.undo_last_stroke():
             self.status.config(text="Nothing to undo")
+
+    def _quit(self) -> None:
+        if self._tick_job is not None:
+            self.after_cancel(self._tick_job)
+        self.destroy()
+
+
+def _fmt_mmss(seconds: float) -> str:
+    seconds = int(seconds)
+    return f"{seconds // 60}:{seconds % 60:02d}"
 
 
 def main(config: AppConfig) -> None:

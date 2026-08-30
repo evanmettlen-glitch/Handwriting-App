@@ -31,12 +31,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--samples", default="data/samples")
     p.add_argument("--out", default="models/trocr-personal")
     p.add_argument("--base", default=DEFAULT_BASE)
-    p.add_argument("--epochs", type=int, default=10)
+    p.add_argument("--epochs", type=int, default=12)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--lr", type=float, default=5e-5)
     p.add_argument("--val-frac", type=float, default=0.1)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--no-augment", dest="augment", action="store_false")
+    p.add_argument(
+        "--train-encoder",
+        action="store_true",
+        help="Also fine-tune the vision encoder (default: frozen — better on small sets).",
+    )
     p.add_argument("--dry-run", action="store_true", help="Inspect the data and exit.")
     return p.parse_args()
 
@@ -162,9 +167,15 @@ def main() -> None:
     model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
     model.config.pad_token_id = processor.tokenizer.pad_token_id
 
+    if not args.train_encoder:
+        for param in model.encoder.parameters():
+            param.requires_grad = False
+        print("vision encoder frozen (use --train-encoder to unfreeze)")
+
     train_ds = build_dataset(train_samples, processor, args.augment, args.seed)
     train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.AdamW(trainable, lr=args.lr)
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -174,7 +185,7 @@ def main() -> None:
             labels = batch["labels"].to(device)
             loss = model(pixel_values=pixel_values, labels=labels).loss
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
             optimizer.step()
             optimizer.zero_grad()
             running += loss.item()

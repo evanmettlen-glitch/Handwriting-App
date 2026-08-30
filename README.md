@@ -104,15 +104,23 @@ tesseract backend:
 
 ## Training mode — teach it your handwriting
 
-A personal model is the biggest accuracy win. Collect samples of your own hand,
-then fine-tune TrOCR on them.
+A personal model is the biggest accuracy win.
 
 ```bash
-./run.sh --train                 # shows a prompt, you write it, Save & next
+./run.sh --train
 ```
 
-Aim for 150–300 samples (progress and resume are automatic; samples land in
-`data/samples/`). Then, on a machine with a GPU (the Pi only does inference):
+This runs a **guided enrollment**: ~40 short prompts (rote alphabet, a pangram,
+digits, punctuation, a few sentences) ordered for full letter/digit coverage in
+**under 5 minutes**. The header shows a progress bar to 100%, elapsed time, an
+estimate of time left, and live `a-z / A-Z / 0-9` coverage; it marks you
+**enrolled ✓** once there's enough. `Return` or `Space` = Save & next.
+Samples land in `data/samples/` and resume automatically.
+
+`--freeform` (or `--prompts-file FILE`) switches to an open-ended word list for
+collecting more; `--enroll-target N` changes what counts as 100%.
+
+Then, on a machine with a GPU (the Pi only does inference):
 
 ```bash
 pip install -r requirements-train.txt
@@ -122,7 +130,8 @@ python -m scripts.export_trocr_onnx --model models/trocr-personal \
     --out models/trocr-personal-onnx --quantize
 ```
 
-Back on the Pi:
+The encoder is frozen by default (better with a small set); pass
+`--train-encoder` if you collected a few hundred samples. Back on the Pi:
 
 ```bash
 ./run.sh --model-dir models/trocr-personal-onnx
@@ -197,9 +206,11 @@ handwriting_app/
   pipeline.py                segment → recognize → dictionary-correct
   postprocess.py             SymSpell English-word correction
   config.py                  CLI args
-  training.py                --train UI: prompt → write → save sample
+  training.py                --train UI: guided enrollment, progress bar, timer
+  enrollment.py              curated <5 min prompt set + coverage tracking
+  widgets.py                 ProgressBar
   dataset.py                 read/write samples under data/samples/
-  prompts.py + data/prompts.txt   words/phrases to elicit
+  prompts.py + data/prompts.txt   freeform word list
   recognizer/
     base.py                  Recognizer interface + RecognitionError
     tesseract_recognizer.py  default backend (subprocess)

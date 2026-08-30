@@ -52,10 +52,12 @@ Improvements layered on top (implemented in phase 1):
 Generic cursive recognition is hard. Recognizing *your* cursive after ~150–300
 labelled samples is very achievable.
 
-- **`./run.sh --train`** (`handwriting_app/training.py`) shows a prompt, you
-  write it, **Save & next** stores `NNNN_label.json` (raw strokes) + a `.png`
-  preview under `data/samples/`. Progress and resume are automatic;
-  `handwriting_app/data/prompts.txt` is the default prompt list.
+- **`./run.sh --train`** (`handwriting_app/training.py`) runs a guided
+  enrollment: the ~40-prompt set in `enrollment.py`, ordered for full a-z / A-Z /
+  0-9 coverage in under 5 minutes, with a progress bar, timer, time-left
+  estimate, and live coverage readout. Each **Save & next** stores
+  `NNNN_label.json` (raw strokes) + a `.png` preview under `data/samples/`.
+  Resume is automatic. `--freeform` / `--prompts-file` use the open-ended list.
 - **`scripts/finetune_trocr.py`** loads the samples, renders them through the
   *same* `Ink.render(deslant=True)` the live pipeline uses, applies light affine
   augmentation, and fine-tunes `trocr-small-handwritten` for a few epochs

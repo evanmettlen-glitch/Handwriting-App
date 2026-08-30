@@ -31,6 +31,8 @@ class AppConfig:
     train: bool = False
     samples_dir: str = "data/samples"
     prompts_file: str = ""
+    freeform: bool = False
+    enroll_target: int = 0  # 0 = use the full enrollment set length
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -132,7 +134,19 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument(
         "--prompts-file",
         default=AppConfig.prompts_file,
-        help="Custom prompt list (one word/phrase per line).",
+        help="Custom prompt list (one word/phrase per line); implies --freeform.",
+    )
+    train.add_argument(
+        "--freeform",
+        action="store_true",
+        help="Open-ended word list instead of the guided enrollment set.",
+    )
+    train.add_argument(
+        "--enroll-target",
+        type=int,
+        default=AppConfig.enroll_target,
+        metavar="N",
+        help="Samples that count as 100%% on the enrollment bar (default: all ~40).",
     )
     return p
 
@@ -159,4 +173,6 @@ def parse_args(argv=None) -> AppConfig:
         train=args.train,
         samples_dir=args.samples_dir,
         prompts_file=args.prompts_file,
+        freeform=args.freeform,
+        enroll_target=args.enroll_target,
     )
