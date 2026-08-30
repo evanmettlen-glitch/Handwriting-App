@@ -27,6 +27,10 @@ class AppConfig:
     deslant: bool = True
     spellcheck: bool = True
     spell_compound: bool = False
+    # training mode
+    train: bool = False
+    samples_dir: str = "data/samples"
+    prompts_file: str = ""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -113,6 +117,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Aggressive dictionary pass that also fixes wrong/missing spaces.",
     )
+
+    train = p.add_argument_group("training mode")
+    train.add_argument(
+        "--train",
+        action="store_true",
+        help="Run data-collection mode instead of the recognizer.",
+    )
+    train.add_argument(
+        "--samples-dir",
+        default=AppConfig.samples_dir,
+        help="Where training samples are read/written (default: data/samples).",
+    )
+    train.add_argument(
+        "--prompts-file",
+        default=AppConfig.prompts_file,
+        help="Custom prompt list (one word/phrase per line).",
+    )
     return p
 
 
@@ -135,4 +156,7 @@ def parse_args(argv=None) -> AppConfig:
         deslant=args.deslant,
         spellcheck=args.spellcheck,
         spell_compound=args.spell_compound,
+        train=args.train,
+        samples_dir=args.samples_dir,
+        prompts_file=args.prompts_file,
     )

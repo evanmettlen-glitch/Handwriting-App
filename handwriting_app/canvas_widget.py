@@ -98,6 +98,33 @@ class InkCanvas(tk.Frame):
             self._on_stroke_end()
 
     # -- api ----------------------------------------------------------------
+    def redraw(self) -> None:
+        """Repaint all ink from ``self.ink`` (after an external edit / undo)."""
+        self.canvas.delete("ink")
+        for stroke in self.ink.strokes:
+            pts = stroke.points
+            if len(pts) == 1:
+                x, y = pts[0]
+                r = self.stroke_width / 2
+                self.canvas.create_oval(
+                    x - r, y - r, x + r, y + r,
+                    fill=self.ink_color, outline=self.ink_color, tags="ink",
+                )
+                continue
+            for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+                self.canvas.create_line(
+                    x0, y0, x1, y1,
+                    fill=self.ink_color, width=self.stroke_width,
+                    capstyle="round", joinstyle="round", tags="ink",
+                )
+
+    def undo_last_stroke(self) -> bool:
+        if not self.ink.strokes:
+            return False
+        self.ink.strokes.pop()
+        self.redraw()
+        return True
+
     def clear(self) -> None:
         self.ink.clear()
         self.canvas.delete("ink")

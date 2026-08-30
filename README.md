@@ -75,6 +75,7 @@ For higher accuracy (slower, ~3-5 s/line on a Pi 5) export the base model:
 - **Space / ⌫ / ↵** edit the output; the box is also directly editable with a keyboard.
 - **Copy all** puts the text on the clipboard.
 - **Exit** quits the app (or `Ctrl+Q`). `F11` toggles fullscreen, `Esc` leaves fullscreen.
+- Teach it your own handwriting with **`./run.sh --train`** — see *Training mode* below.
 
 ### Flags
 
@@ -100,6 +101,34 @@ tesseract backend:
 
 --keep-ink                  don't clear the pad after each recognition
 ```
+
+## Training mode — teach it your handwriting
+
+A personal model is the biggest accuracy win. Collect samples of your own hand,
+then fine-tune TrOCR on them.
+
+```bash
+./run.sh --train                 # shows a prompt, you write it, Save & next
+```
+
+Aim for 150–300 samples (progress and resume are automatic; samples land in
+`data/samples/`). Then, on a machine with a GPU (the Pi only does inference):
+
+```bash
+pip install -r requirements-train.txt
+python -m scripts.finetune_trocr --dry-run                 # sanity-check the data
+python -m scripts.finetune_trocr --out models/trocr-personal
+python -m scripts.export_trocr_onnx --model models/trocr-personal \
+    --out models/trocr-personal-onnx --quantize
+```
+
+Back on the Pi:
+
+```bash
+./run.sh --model-dir models/trocr-personal-onnx
+```
+
+Full rationale and the roadmap beyond this: [docs/RECOGNITION.md](docs/RECOGNITION.md).
 
 ## Run at boot (kiosk)
 
@@ -168,11 +197,15 @@ handwriting_app/
   pipeline.py                segment → recognize → dictionary-correct
   postprocess.py             SymSpell English-word correction
   config.py                  CLI args
+  training.py                --train UI: prompt → write → save sample
+  dataset.py                 read/write samples under data/samples/
+  prompts.py + data/prompts.txt   words/phrases to elicit
   recognizer/
     base.py                  Recognizer interface + RecognitionError
     tesseract_recognizer.py  default backend (subprocess)
     trocr_onnx_recognizer.py neural backend (ONNX Runtime)
 scripts/export_trocr_onnx.py one-time ONNX export (+ --quantize)
+scripts/finetune_trocr.py    fine-tune on your samples (dev machine / GPU)
 docs/RECOGNITION.md          research notes and roadmap
 systemd/handwriting-app.service
 tests/

@@ -1,0 +1,6 @@
+# For fine-tuning a personal model with scripts/finetune_trocr.py.
+# Run on a dev machine / GPU box, NOT the Pi. A CUDA build of torch is strongly
+# recommended (CPU training works but is slow).
+torch>=2.2
+transformers>=4.36
+pillow>=10.0

@@ -47,19 +47,21 @@ Improvements layered on top (implemented in phase 1):
   frequency dictionary maps near-misses to real words; optional compound mode
   also fixes wrong / missing spaces.
 
-### B. Personalized fine-tuning — the real accuracy unlock
+### B. Personalized fine-tuning — the real accuracy unlock  *(implemented)*
 
 Generic cursive recognition is hard. Recognizing *your* cursive after ~150–300
 labelled samples is very achievable.
 
-Plan:
-
-1. **Training mode** in the app: it shows a prompt word/phrase, you write it, it
-   stores `(ink.json, label)` under `data/samples/`.
-2. Render samples the same way the live pipeline does.
-3. Fine-tune `trocr-small-handwritten` for a few epochs (a laptop GPU or a free
-   Colab does this in minutes; the Pi only runs inference).
-4. Drop the resulting weights in `models/` and point `--model-dir` at them.
+- **`./run.sh --train`** (`handwriting_app/training.py`) shows a prompt, you
+  write it, **Save & next** stores `NNNN_label.json` (raw strokes) + a `.png`
+  preview under `data/samples/`. Progress and resume are automatic;
+  `handwriting_app/data/prompts.txt` is the default prompt list.
+- **`scripts/finetune_trocr.py`** loads the samples, renders them through the
+  *same* `Ink.render(deslant=True)` the live pipeline uses, applies light affine
+  augmentation, and fine-tunes `trocr-small-handwritten` for a few epochs
+  (reports train loss + val CER). `--dry-run` inspects the data without torch.
+- Export the result with `scripts/export_trocr_onnx.py --model models/trocr-personal`
+  and point `--model-dir` at the ONNX folder.
 
 This is the highest value-per-hour path after phase 1.
 
@@ -82,9 +84,10 @@ good lightweight fallback), and published IAM-OnDB BiLSTM-CTC implementations.
 ## Roadmap
 
 - [x] **Phase 0** — tesseract baseline + image preprocessing.
-- [~] **Phase 1** — pen-lift word segmentation, slant normalization, SymSpell
-  correction, TrOCR-base as the default when its model is present. *(this change)*
-- [ ] **Phase 2** — training mode + fine-tuning scripts for a personal model.
+- [x] **Phase 1** — pen-lift word segmentation, slant normalization, SymSpell
+  correction, TrOCR as the default when its model is present.
+- [x] **Phase 2** — `--train` data-collection mode + `finetune_trocr.py` for a
+  personal model.
 - [ ] **Phase 3** — online BiLSTM-CTC model trained on IAM-OnDB; add timestamps
   to strokes; make it selectable as `--backend online`.
 - [ ] **Phase 4** — KenLM/n-gram decoding for context-aware correction.

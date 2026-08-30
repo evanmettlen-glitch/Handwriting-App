@@ -10,7 +10,7 @@ from typing import Optional
 
 from handwriting_app.canvas_widget import InkCanvas
 from handwriting_app.config import AppConfig, parse_args
-from handwriting_app.ink import Ink, Stroke
+from handwriting_app.ink import Ink
 from handwriting_app.pipeline import PipelineConfig, RecognitionPipeline
 from handwriting_app.recognizer import RecognitionError, build_recognizer
 
@@ -193,9 +193,7 @@ class HandwritingApp(tk.Tk):
     # -- recognition -----------------------------------------------------
     def _snapshot_ink(self) -> Ink:
         """Copy the current strokes so the worker is safe from live drawing."""
-        return Ink(
-            strokes=[Stroke(list(s.points)) for s in self.canvas.ink.strokes]
-        )
+        return self.canvas.ink.copy()
 
     def _recognize_now(self, auto: bool = False) -> None:
         self._pending_auto = None
@@ -324,6 +322,11 @@ class HandwritingApp(tk.Tk):
 
 def main() -> None:
     config = parse_args()
+    if config.train:
+        from handwriting_app.training import main as training_main
+
+        training_main(config)
+        return
     HandwritingApp(config).mainloop()
 
 

@@ -1,0 +1,143 @@
+# Prompts for training mode. One word or short phrase per line.
+# Lines starting with # are ignored. Add your own frequent words at the end.
+
+# --- pangrams (every letter) ---
+the quick brown fox
+jumps over the lazy dog
+pack my box with five dozen liquor jugs
+how vexingly quick daft zebras jump
+
+# --- most common english words ---
+the
+be
+to
+of
+and
+a
+in
+that
+have
+it
+for
+not
+on
+with
+he
+as
+you
+do
+at
+this
+but
+his
+by
+from
+they
+we
+say
+her
+she
+or
+an
+will
+my
+one
+all
+would
+there
+their
+what
+so
+up
+out
+if
+about
+who
+get
+which
+go
+me
+when
+make
+can
+like
+time
+no
+just
+him
+know
+take
+people
+into
+year
+your
+good
+some
+could
+them
+see
+other
+than
+then
+now
+look
+only
+come
+its
+over
+think
+also
+back
+after
+use
+two
+how
+our
+work
+first
+well
+way
+even
+new
+want
+because
+any
+these
+give
+day
+most
+us
+
+# --- capitalized: names, months, days ---
+Monday
+Tuesday
+Wednesday
+Saturday
+January
+August
+December
+London
+Raspberry Pi
+English
+
+# --- digits and mixed ---
+0 1 2 3 4 5 6 7 8 9
+2026
+room 214
+order 4417
+version 0.1.0
+call 555 0139
+$19.95
+75%
+
+# --- punctuation and short phrases ---
+Hello, world!
+yes or no?
+it's over there.
+wait - stop!
+one (two) three
+email me later
+see you tomorrow
+turn it off and on
+the meeting is at noon
+please and thank you

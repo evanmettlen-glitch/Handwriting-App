@@ -22,6 +22,13 @@ class Stroke:
     def __len__(self) -> int:
         return len(self.points)
 
+    def to_list(self) -> List[List[float]]:
+        return [[round(x, 2), round(y, 2)] for x, y in self.points]
+
+    @classmethod
+    def from_list(cls, data) -> "Stroke":
+        return cls([(float(x), float(y)) for x, y in data])
+
 
 @dataclass
 class Ink:
@@ -37,6 +44,16 @@ class Ink:
     @property
     def is_empty(self) -> bool:
         return not any(len(s) for s in self.strokes)
+
+    def copy(self) -> "Ink":
+        return Ink([Stroke(list(s.points)) for s in self.strokes])
+
+    def to_dict(self) -> dict:
+        return {"strokes": [s.to_list() for s in self.strokes]}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Ink":
+        return cls([Stroke.from_list(s) for s in data.get("strokes", [])])
 
     def clear(self) -> None:
         self.strokes.clear()
