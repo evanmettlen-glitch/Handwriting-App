@@ -74,7 +74,6 @@ class InkCanvas(tk.Frame):
             width=self.stroke_width,
             capstyle="round",
             joinstyle="round",
-            smooth=True,
             tags="ink",
         )
         self._last = (event.x, event.y)

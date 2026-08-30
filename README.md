@@ -42,12 +42,24 @@ cd ~/HandWritingApp
 `install.sh` installs `python3-tk` and `tesseract-ocr`, creates a `.venv`, and
 installs Pillow.
 
-### Optional: neural backend
+### Optional: neural backend (recommended for real handwriting)
+
+`tesseract` is an OCR engine for printed text — it misreads most handwriting.
+For anything other than careful block capitals, use TrOCR:
 
 ```bash
 ./.venv/bin/pip install -r requirements-trocr.txt
-./.venv/bin/python -m scripts.export_trocr_onnx      # downloads + converts once
+./.venv/bin/python -m scripts.export_trocr_onnx      # small model, downloads + converts once
 ./run.sh --backend trocr
+```
+
+For higher accuracy (slower, ~3-5 s/line on a Pi 5) export the base model:
+
+```bash
+./.venv/bin/python -m scripts.export_trocr_onnx \
+    --model microsoft/trocr-base-handwritten \
+    --out models/trocr-base-handwritten-onnx
+./run.sh --backend trocr --model-dir models/trocr-base-handwritten-onnx
 ```
 
 ## Using it
@@ -105,10 +117,12 @@ Most USB panels need no setup. If touches don't register or land in the wrong sp
 
 ## Accuracy tips
 
+- **Use `--backend trocr`.** `tesseract` cannot read normal handwriting well and
+  no amount of tuning changes that — it was built for scanned print.
 - Write large, upright, well-spaced characters near the baseline guide.
-- One word at a time is cleanest with `tesseract`.
+- With `tesseract`: one word at a time, and try `--psm 8` (single word) or
+  `--psm 13` (raw line) if `--psm 7` misreads.
 - Use `--whitelist` when you only need digits or A–Z.
-- For anything past block capitals, switch to `--backend trocr`.
 
 ## Tests
 

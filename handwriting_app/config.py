@@ -15,7 +15,7 @@ class AppConfig:
     model_dir: str = "models/trocr-small-handwritten-onnx"
     fullscreen: bool = False
     auto_recognize: bool = True
-    auto_delay_ms: int = 1200
+    auto_delay_ms: int = 1800
     stroke_width: int = 8
     render_pad: int = 32
     font_scale: float = 1.0
@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=AppConfig.auto_delay_ms,
         metavar="MS",
-        help="Idle time before auto-recognize fires (default: 1200).",
+        help="Idle time before auto-recognize fires (default: 1800).",
     )
     p.add_argument("--stroke-width", type=int, default=AppConfig.stroke_width, help="Pen width in pixels.")
     p.add_argument(

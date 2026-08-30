@@ -36,8 +36,28 @@ class TesseractRecognizer(Recognizer):
                 "Install it with:  sudo apt install tesseract-ocr"
             )
 
-    def recognize(self, image: Image.Image) -> str:
+    @staticmethod
+    def _preprocess(image: Image.Image) -> Image.Image:
+        """Make the ink look as much like clean printed text as possible.
+
+        Tesseract's LSTM engine wants dark text on a white background at a
+        generous size. Upscale small images, stretch contrast, then binarize.
+        """
         gray = ImageOps.grayscale(image)
+        gray = ImageOps.autocontrast(gray, cutoff=1)
+
+        target_height = 160
+        if gray.height < target_height:
+            scale = target_height / gray.height
+            gray = gray.resize(
+                (max(1, round(gray.width * scale)), target_height), Image.LANCZOS
+            )
+
+        binarized = gray.point(lambda p: 0 if p < 175 else 255)
+        return ImageOps.expand(binarized, border=28, fill=255)
+
+    def recognize(self, image: Image.Image) -> str:
+        gray = self._preprocess(image)
         args = [
             self.binary,
             "-",  # read image from stdin

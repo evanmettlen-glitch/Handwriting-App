@@ -33,6 +33,7 @@ class HandwritingApp(tk.Tk):
         self._recognizer: Optional[Recognizer] = None
         self._busy = False
         self._pending_auto: Optional[str] = None
+        self._clear_pending = False
 
         self._build_fonts()
         self._build_ui()
@@ -90,7 +91,7 @@ class HandwritingApp(tk.Tk):
 
         buttons = [
             self.btn_recognize,
-            self._mk_button(panel, "Clear pad", self.canvas.clear),
+            self._mk_button(panel, "Clear pad", self._clear_pad),
             self._mk_button(panel, "Space", lambda: self._edit_output(" ")),
             self._mk_button(panel, "⌫  Back", self._backspace),
             self._mk_button(panel, "↵  Newline", lambda: self._edit_output("\n")),
@@ -142,7 +143,7 @@ class HandwritingApp(tk.Tk):
         self.bind("<F11>", lambda _e: self._set_fullscreen(not self._is_fullscreen()))
         self.bind("<Escape>", lambda _e: self._set_fullscreen(False))
         self.bind("<Control-Return>", lambda _e: self._recognize_now())
-        self.bind("<Control-l>", lambda _e: self.canvas.clear())
+        self.bind("<Control-l>", lambda _e: self._clear_pad())
 
     # -- fullscreen helpers ------------------------------------------------
     def _is_fullscreen(self) -> bool:
@@ -244,9 +245,13 @@ class HandwritingApp(tk.Tk):
         )
         self.output.insert("end", separator + text)
         self.output.see("end")
-        self._set_status(f"Added: {text!r}")
         if self.cfg.clear_after_recognize:
-            self.canvas.clear()
+            # Leave the ink on screen so the result can be checked against it;
+            # wipe it only when the user starts writing the next thing.
+            self._clear_pending = True
+            self._set_status(f"Added: {text!r} — start writing to continue")
+        else:
+            self._set_status(f"Added: {text!r}")
 
     def _edit_output(self, text: str) -> None:
         self.output.insert("end", text)
@@ -255,6 +260,10 @@ class HandwritingApp(tk.Tk):
     def _backspace(self) -> None:
         if self.output.compare("end-1c", ">", "1.0"):
             self.output.delete("end-2c", "end-1c")
+
+    def _clear_pad(self) -> None:
+        self._clear_pending = False
+        self.canvas.clear()
 
     def _clear_output(self) -> None:
         self.output.delete("1.0", "end")
@@ -272,6 +281,9 @@ class HandwritingApp(tk.Tk):
 
     # -- stroke callbacks (auto-recognize) -------------------------
     def _on_stroke_start(self) -> None:
+        if self._clear_pending:
+            self.canvas.clear()
+            self._clear_pending = False
         if self._pending_auto is not None:
             self.after_cancel(self._pending_auto)
             self._pending_auto = None
