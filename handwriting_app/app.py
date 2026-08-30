@@ -8,11 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from tkinter import font as tkfont
 from typing import Optional
 
-from PIL import Image
-
 from handwriting_app.canvas_widget import InkCanvas
 from handwriting_app.config import AppConfig, parse_args
-from handwriting_app.recognizer import RecognitionError, Recognizer, build_recognizer
+from handwriting_app.ink import Ink, Stroke
+from handwriting_app.pipeline import PipelineConfig, RecognitionPipeline
+from handwriting_app.recognizer import RecognitionError, build_recognizer
 
 _BG = "#1e1e1e"
 _FG = "#f0f0f0"
@@ -30,7 +30,7 @@ class HandwritingApp(tk.Tk):
 
         self._results: "queue.Queue[tuple[str, str]]" = queue.Queue()
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="recognizer")
-        self._recognizer: Optional[Recognizer] = None
+        self._pipeline: Optional[RecognitionPipeline] = None
         self._busy = False
         self._pending_auto: Optional[str] = None
         self._clear_pending = False
@@ -168,20 +168,39 @@ class HandwritingApp(tk.Tk):
     def _load_recognizer(self) -> None:
         try:
             recognizer = build_recognizer(self.cfg)
+            pipeline = RecognitionPipeline(
+                recognizer,
+                PipelineConfig(
+                    segment=self.cfg.segment,
+                    word_gap_ratio=self.cfg.word_gap_ratio,
+                    deslant=self.cfg.deslant,
+                    spellcheck=self.cfg.spellcheck,
+                    spell_compound=self.cfg.spell_compound,
+                    stroke_width=self.cfg.stroke_width,
+                    render_pad=self.cfg.render_pad,
+                ),
+            )
         except RecognitionError as exc:
             self._results.put(("fatal", str(exc)))
             return
         except Exception as exc:  # noqa: BLE001
             self._results.put(("fatal", f"{type(exc).__name__}: {exc}"))
             return
-        self._recognizer = recognizer
-        self._results.put(("ready", recognizer.name))
+        self._pipeline = pipeline
+        note = f" ({'; '.join(pipeline.notes)})" if pipeline.notes else ""
+        self._results.put(("ready", recognizer.name + note))
 
     # -- recognition -----------------------------------------------------
+    def _snapshot_ink(self) -> Ink:
+        """Copy the current strokes so the worker is safe from live drawing."""
+        return Ink(
+            strokes=[Stroke(list(s.points)) for s in self.canvas.ink.strokes]
+        )
+
     def _recognize_now(self, auto: bool = False) -> None:
         self._pending_auto = None
-        recognizer = self._recognizer
-        if recognizer is None:
+        pipeline = self._pipeline
+        if pipeline is None:
             if not auto:
                 self._set_status("Backend is still loading…")
             return
@@ -189,21 +208,19 @@ class HandwritingApp(tk.Tk):
             if not auto:
                 self._set_status("Still working on the last one…")
             return
-        image = self.canvas.ink.render(
-            stroke_width=self.cfg.stroke_width, pad=self.cfg.render_pad
-        )
-        if image is None:
+        ink = self._snapshot_ink()
+        if ink.is_empty:
             if not auto:
                 self._set_status("Nothing written yet")
             return
 
         self._busy = True
         self._set_status("Recognizing…")
-        self._pool.submit(self._recognize_worker, recognizer, image)
+        self._pool.submit(self._recognize_worker, pipeline, ink)
 
-    def _recognize_worker(self, recognizer: Recognizer, image: Image.Image) -> None:
+    def _recognize_worker(self, pipeline: RecognitionPipeline, ink: Ink) -> None:
         try:
-            text = recognizer.recognize(image)
+            text = pipeline.run(ink)
             self._results.put(("result", text))
         except RecognitionError as exc:
             self._results.put(("error", str(exc)))

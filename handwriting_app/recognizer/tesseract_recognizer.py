@@ -56,8 +56,9 @@ class TesseractRecognizer(Recognizer):
         binarized = gray.point(lambda p: 0 if p < 175 else 255)
         return ImageOps.expand(binarized, border=28, fill=255)
 
-    def recognize(self, image: Image.Image) -> str:
+    def recognize(self, image: Image.Image, *, hint: str = "line") -> str:
         gray = self._preprocess(image)
+        psm = 8 if hint == "word" else self.psm  # 8 = treat image as a single word
         args = [
             self.binary,
             "-",  # read image from stdin
@@ -65,7 +66,7 @@ class TesseractRecognizer(Recognizer):
             "-l",
             self.lang,
             "--psm",
-            str(self.psm),
+            str(psm),
             "--oem",
             "1",
         ]

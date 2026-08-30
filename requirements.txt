@@ -1,3 +1,8 @@
 # Core dependencies for the default (tesseract) backend.
 # System packages are installed by install.sh: python3-tk, tesseract-ocr
 pillow>=10.0
+
+# Dictionary-based correction of recognizer output. Pure-Python + a small
+# compiled edit-distance helper (aarch64 wheels available). Optional: the app
+# runs without it, just without spell correction.
+symspellpy>=6.7

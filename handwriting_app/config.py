@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 @dataclass
 class AppConfig:
-    backend: str = "tesseract"
+    backend: str = "auto"  # auto -> trocr if its model is present, else tesseract
     lang: str = "eng"
     psm: int = 7
     whitelist: str = ""
@@ -21,6 +21,12 @@ class AppConfig:
     font_scale: float = 1.0
     clear_after_recognize: bool = True
     append_separator: str = " "
+    # recognition pipeline
+    segment: bool = True
+    word_gap_ratio: float = 0.4
+    deslant: bool = True
+    spellcheck: bool = True
+    spell_compound: bool = False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,9 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--backend",
-        choices=["tesseract", "trocr"],
+        choices=["auto", "tesseract", "trocr"],
         default=AppConfig.backend,
-        help="Recognition engine (default: tesseract).",
+        help="Recognition engine (default: auto).",
     )
     p.add_argument(
         "--lang",
@@ -43,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--psm",
         type=int,
         default=AppConfig.psm,
-        help="Tesseract page segmentation mode (7 = single line, 6 = block).",
+        help="Tesseract page segmentation mode for line images (7=line, 13=raw line).",
     )
     p.add_argument(
         "--whitelist",
@@ -78,6 +84,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Do not clear the canvas after each recognition.",
     )
+    p.add_argument(
+        "--no-segment",
+        dest="segment",
+        action="store_false",
+        help="Recognize the whole line at once instead of word by word.",
+    )
+    p.add_argument(
+        "--word-gap-ratio",
+        type=float,
+        default=AppConfig.word_gap_ratio,
+        help="Word-break gap as a fraction of writing height (default: 0.4).",
+    )
+    p.add_argument(
+        "--no-deslant",
+        dest="deslant",
+        action="store_false",
+        help="Do not straighten slanted writing before recognition.",
+    )
+    p.add_argument(
+        "--no-spellcheck",
+        dest="spellcheck",
+        action="store_false",
+        help="Do not correct output against an English dictionary.",
+    )
+    p.add_argument(
+        "--spell-compound",
+        action="store_true",
+        help="Aggressive dictionary pass that also fixes wrong/missing spaces.",
+    )
     return p
 
 
@@ -95,4 +130,9 @@ def parse_args(argv=None) -> AppConfig:
         stroke_width=args.stroke_width,
         font_scale=args.font_scale,
         clear_after_recognize=args.clear_after_recognize,
+        segment=args.segment,
+        word_gap_ratio=args.word_gap_ratio,
+        deslant=args.deslant,
+        spellcheck=args.spellcheck,
+        spell_compound=args.spell_compound,
     )

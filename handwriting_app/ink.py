@@ -48,6 +48,20 @@ class Ink:
             return None
         return min(xs), min(ys), max(xs), max(ys)
 
+    def _shear(self) -> float:
+        """Slope that decorrelates x from y across all points (slant estimate)."""
+        pts = [p for s in self.strokes for p in s.points]
+        n = len(pts)
+        if n < 8:
+            return 0.0
+        mx = sum(x for x, _ in pts) / n
+        my = sum(y for _, y in pts) / n
+        sxy = sum((x - mx) * (y - my) for x, y in pts)
+        syy = sum((y - my) ** 2 for _, y in pts)
+        if syy < 1e-6:
+            return 0.0
+        return max(-0.5, min(0.5, -sxy / syy))
+
     def render(
         self,
         *,
@@ -55,16 +69,32 @@ class Ink:
         stroke_width: int = 8,
         supersample: int = 2,
         max_width: int = 1600,
+        deslant: bool = False,
     ) -> Optional[Image.Image]:
         """Rasterize the strokes as dark ink on a white background.
 
         Returns ``None`` when there is nothing to draw. The image is cropped to
         the ink bounding box plus ``pad`` pixels and drawn at ``supersample``x
-        then downscaled, which gives smooth anti-aliased strokes.
+        then downscaled, which gives smooth anti-aliased strokes. With
+        ``deslant`` the points are sheared to straighten a consistent lean
+        before rasterization (no resampling artifacts).
         """
         box = self.bounds()
         if box is None:
             return None
+
+        strokes = self.strokes
+        if deslant:
+            k = self._shear()
+            if k:
+                _, top, _, _ = box
+                strokes = [
+                    Stroke([(x + k * (y - top), y) for x, y in s.points])
+                    for s in self.strokes
+                ]
+                xs = [x for s in strokes for x, _ in s.points]
+                ys = [y for s in strokes for _, y in s.points]
+                box = (min(xs), min(ys), max(xs), max(ys))
 
         x0, y0, x1, y1 = box
         width = max(int(x1 - x0) + 2 * pad, 8)
@@ -75,7 +105,7 @@ class Ink:
         draw = ImageDraw.Draw(canvas)
         radius = stroke_width * s / 2.0
 
-        for stroke in self.strokes:
+        for stroke in strokes:
             if len(stroke) == 0:
                 continue
             pts = [

@@ -11,24 +11,29 @@ pointer device — which is almost all of them, with no extra drivers.
 ```
 finger / stylus ─▶ USB touch panel (evdev → pointer events)
                         │
-                 InkCanvas (Tkinter)     captures strokes as (x, y) polylines
+                 InkCanvas (Tkinter)     captures each pen-down..up as a stroke
                         │
-                 Ink.render()            rasterizes strokes → clean B/W image
+                 segment_words()         group strokes into words by pen-lift gaps
+                        │
+                 Ink.render(deslant)     shear out slant, rasterize each word
                         │
                  Recognizer backend      image → text   (on a worker thread)
+                        │
+                 SpellCorrector          snap tokens to real English words
                         │
                  Text box                append · edit · copy to clipboard
 ```
 
 Two interchangeable recognition backends:
 
-| Backend                | Weight              | Accuracy                                   | Setup                      |
-|------------------------|---------------------|--------------------------------------------|----------------------------|
-| `tesseract` (default)  | tiny (apt package)  | good for neat block printing; weak cursive | none                       |
-| `trocr`                | large (~1 GB)       | strong on messy print & some cursive       | one-time model export      |
+| Backend      | Weight             | Accuracy                                     | Setup                 |
+|--------------|--------------------|----------------------------------------------|-----------------------|
+| `tesseract`  | tiny (apt package) | OK for block printing only; poor on cursive  | none                  |
+| `trocr`      | large (~1 GB)      | strong on messy print and cursive            | one-time model export |
 
-`trocr` uses Microsoft's TrOCR handwritten model on ONNX Runtime; expect
-~1–3 s per line on the Pi 5 CPU.
+`--backend auto` (the default) uses `trocr` when its model has been exported,
+otherwise `tesseract`. See [docs/RECOGNITION.md](docs/RECOGNITION.md) for the
+research notes and the roadmap (personal fine-tuning, online stroke model).
 
 ## Install
 
@@ -40,7 +45,7 @@ cd ~/HandWritingApp
 ```
 
 `install.sh` installs `python3-tk` and `tesseract-ocr`, creates a `.venv`, and
-installs Pillow.
+installs Pillow + symspellpy (the English dictionary for output correction).
 
 ### Optional: neural backend (recommended for real handwriting)
 
@@ -74,15 +79,25 @@ For higher accuracy (slower, ~3-5 s/line on a Pi 5) export the base model:
 ### Flags
 
 ```
---backend {tesseract,trocr}
+--backend {auto,tesseract,trocr}
 --fullscreen                start in kiosk mode
 --no-auto                   manual recognition only
---auto-delay MS             pause before auto-recognize (default 1200)
+--auto-delay MS             pause before auto-recognize (default 1800)
 --stroke-width PX            pen thickness (default 8)
 --font-scale N              enlarge all UI text (e.g. 1.4 on small hi-dpi panels)
---lang eng+deu              Tesseract languages (needs tesseract-ocr-deu, etc.)
---psm N                     Tesseract segmentation (7 = one line, 6 = block)
+
+recognition pipeline:
+--no-segment                recognize the whole line at once, not word by word
+--word-gap-ratio R          word-break gap ÷ writing height (default 0.4)
+--no-deslant                keep slanted writing as-is
+--no-spellcheck             don't correct output against the English dictionary
+--spell-compound            aggressive dictionary pass; also fixes bad spacing
+
+tesseract backend:
+--lang eng+deu              languages (needs tesseract-ocr-deu, etc.)
+--psm N                     line segmentation (7 = one line, 13 = raw line)
 --whitelist 0123456789      restrict recognized characters
+
 --keep-ink                  don't clear the pad after each recognition
 ```
 
@@ -117,12 +132,15 @@ Most USB panels need no setup. If touches don't register or land in the wrong sp
 
 ## Accuracy tips
 
-- **Use `--backend trocr`.** `tesseract` cannot read normal handwriting well and
-  no amount of tuning changes that — it was built for scanned print.
-- Write large, upright, well-spaced characters near the baseline guide.
-- With `tesseract`: one word at a time, and try `--psm 8` (single word) or
-  `--psm 13` (raw line) if `--psm 7` misreads.
-- Use `--whitelist` when you only need digits or A–Z.
+- **Export and use `--backend trocr`.** `tesseract` cannot read normal
+  handwriting well — it was built for scanned print. Everything below matters
+  much less than this.
+- Leave a clear space between words so the pen-lift segmenter can split them
+  (tune with `--word-gap-ratio`).
+- Write near the baseline guide; size and slant are handled automatically.
+- Best results come from a personal fine-tune — see
+  [docs/RECOGNITION.md](docs/RECOGNITION.md), phase 2.
+- `tesseract` only: try `--psm 13`, and `--whitelist` if you need just digits/A–Z.
 
 ## Tests
 
@@ -133,11 +151,11 @@ Most USB panels need no setup. If touches don't register or land in the wrong sp
 
 ## Limits
 
-- Not true online recognition — strokes are rasterized then image-OCR'd; stroke
-  order, timing and pressure aren't used.
-- `tesseract` is an OCR engine, not a handwriting model — expect errors on
-  anything that isn't tidy printing.
-- TrOCR-small is line-level; split very long lines.
+- Not true online recognition yet — strokes are rasterized then image-OCR'd, so
+  stroke order and timing aren't used by the model (only for word segmentation).
+  The online stroke model is phase 3 in the roadmap.
+- `tesseract` is an OCR engine, not a handwriting model.
+- TrOCR is line/word-level; the pipeline handles one line at a time.
 
 ## Layout
 
@@ -145,13 +163,17 @@ Most USB panels need no setup. If touches don't register or land in the wrong sp
 handwriting_app/
   app.py                     Tkinter UI + threading
   canvas_widget.py           stroke capture
-  ink.py                     stroke model + rasterization
+  ink.py                     stroke model + rasterization + deslant
+  segmentation.py            group strokes into words by pen-lift gaps
+  pipeline.py                segment → recognize → dictionary-correct
+  postprocess.py             SymSpell English-word correction
   config.py                  CLI args
   recognizer/
     base.py                  Recognizer interface + RecognitionError
     tesseract_recognizer.py  default backend (subprocess)
-    trocr_onnx_recognizer.py optional neural backend
-scripts/export_trocr_onnx.py one-time ONNX export
+    trocr_onnx_recognizer.py neural backend (ONNX Runtime)
+scripts/export_trocr_onnx.py one-time ONNX export (+ --quantize)
+docs/RECOGNITION.md          research notes and roadmap
 systemd/handwriting-app.service
 tests/
 ```
