@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from handwriting_app.naming import user_slug
 
 
 @dataclass
@@ -14,7 +15,8 @@ class AppConfig:
     lang: str = "eng"
     psm: int = 7
     whitelist: str = ""
-    model_dir: str = "models/trocr-small-handwritten-onnx"
+    model_dir: str = ""  # "" -> auto-discover (see handwriting_app/models.py)
+    user: str = ""
     fullscreen: bool = False
     auto_recognize: bool = True
     auto_delay_ms: int = 1800
@@ -29,6 +31,7 @@ class AppConfig:
     deslant: bool = True
     spellcheck: bool = True
     spell_compound: bool = False
+    personal_lexicon: bool = True
     # training mode
     train: bool = False
     samples_dir: str = "data/samples"
@@ -64,7 +67,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=AppConfig.whitelist,
         help="Restrict recognized output to these characters (tesseract only).",
     )
-    p.add_argument("--model-dir", default=AppConfig.model_dir, help="TrOCR ONNX model directory.")
+    p.add_argument(
+        "--model-dir",
+        default=AppConfig.model_dir,
+        help="TrOCR ONNX model directory (default: auto-discover a personal or generic model).",
+    )
+    p.add_argument(
+        "--user",
+        default=AppConfig.user,
+        help="Person to personalize for: loads models/<user>-onnx and their word list.",
+    )
+    p.add_argument(
+        "--no-personal-lexicon",
+        dest="personal_lexicon",
+        action="store_false",
+        help="Ignore words learned from collected samples.",
+    )
     p.add_argument("--fullscreen", action="store_true", help="Start in fullscreen kiosk mode.")
     p.add_argument(
         "--no-auto",
@@ -131,12 +149,8 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument(
         "--samples-dir",
         default=AppConfig.samples_dir,
-        help="Where training samples are read/written (default: data/samples).",
-    )
-    train.add_argument(
-        "--user",
-        default="",
-        help="Collect into a per-person subfolder: <samples-dir>/<user>.",
+        help="Where training samples are read/written (default: data/samples). "
+        "With --user, collection goes to <samples-dir>/<user>.",
     )
     train.add_argument(
         "--prompts-file",
@@ -162,14 +176,15 @@ def parse_args(argv=None) -> AppConfig:
     args = build_parser().parse_args(argv)
     samples_dir = args.samples_dir
     if args.user:
-        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", args.user).strip("_") or "user"
-        samples_dir = str(Path(samples_dir) / safe)
+        samples_dir = str(Path(samples_dir) / user_slug(args.user))
     return AppConfig(
         backend=args.backend,
         lang=args.lang,
         psm=args.psm,
         whitelist=args.whitelist,
         model_dir=args.model_dir,
+        user=args.user,
+        personal_lexicon=args.personal_lexicon,
         fullscreen=args.fullscreen,
         auto_recognize=args.auto_recognize,
         auto_delay_ms=args.auto_delay,

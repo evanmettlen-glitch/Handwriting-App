@@ -2,24 +2,31 @@
 
 from __future__ import annotations
 
-import os
-
 from handwriting_app.config import AppConfig
+from handwriting_app.models import resolve_model_dir
 
 from .base import RecognitionError, Recognizer
 
-__all__ = ["RecognitionError", "Recognizer", "build_recognizer", "resolve_backend"]
+__all__ = [
+    "RecognitionError",
+    "Recognizer",
+    "build_recognizer",
+    "resolve_backend",
+]
 
 
 def resolve_backend(config: AppConfig) -> str:
     """Turn ``backend="auto"`` into a concrete choice.
 
-    Prefer TrOCR when its exported model is present and its deps import;
-    otherwise fall back to tesseract.
+    Prefer TrOCR when a model is present (personal or generic) and its deps
+    import; otherwise fall back to tesseract.
     """
     if config.backend != "auto":
         return config.backend
-    if os.path.isdir(config.model_dir):
+
+    from pathlib import Path
+
+    if Path(resolve_model_dir(config.model_dir, config.user)).is_dir():
         try:
             import optimum.onnxruntime  # noqa: F401
             import transformers  # noqa: F401
@@ -43,5 +50,7 @@ def build_recognizer(config: AppConfig) -> Recognizer:
     if backend in ("trocr", "trocr-onnx"):
         from .trocr_onnx_recognizer import TrocrOnnxRecognizer
 
-        return TrocrOnnxRecognizer(model_dir=config.model_dir)
+        return TrocrOnnxRecognizer(
+            model_dir=resolve_model_dir(config.model_dir, config.user)
+        )
     raise RecognitionError(f"Unknown backend: {backend!r}")

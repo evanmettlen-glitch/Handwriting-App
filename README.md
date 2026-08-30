@@ -87,6 +87,11 @@ For higher accuracy (slower, ~3-5 s/line on a Pi 5) export the base model:
 --stroke-width PX            pen thickness (default 8)
 --font-scale N              enlarge all UI text (e.g. 1.4 on small hi-dpi panels)
 
+personalization:
+--user NAME                  load models/NAME-onnx + NAME's learned word list
+--model-dir DIR             force a specific model directory
+--no-personal-lexicon       ignore words learned from collected samples
+
 recognition pipeline:
 --no-segment                recognize the whole line at once, not word by word
 --word-gap-ratio R          word-break gap ÷ writing height (default 0.4)
@@ -132,11 +137,32 @@ python -m scripts.export_trocr_onnx --model models/trocr-personal \
     --out models/trocr-personal-onnx --quantize
 ```
 
-The encoder is frozen by default (better with a small set); pass
-`--train-encoder` if you collected a few hundred samples. Back on the Pi:
+Or do both steps at once (runs on the Pi too, ~20–40 min on CPU):
 
 ```bash
-./run.sh --model-dir models/trocr-personal-onnx
+./scripts/train_personal.sh            # data/samples -> models/trocr-personal-onnx
+./scripts/train_personal.sh evan       # data/samples/evan -> models/evan-onnx
+```
+
+The encoder is frozen by default (better with a small set); pass
+`--train-encoder` to `finetune_trocr.py` if you collected a few hundred samples.
+
+### Using the learned data
+
+The app picks it up on its own — no flags:
+
+- **Model** — `./run.sh` auto-loads `models/trocr-personal-onnx` if it exists
+  (or `models/<user>-onnx` with `--user <name>`), else a generic model, else
+  tesseract. The status line shows which (`trocr:trocr-personal-onnx`).
+- **Personal word list** — every word you wrote during enrollment is fed to the
+  spell corrector as a known term, so it stops "correcting" your names and
+  jargon into dictionary words while still fixing real typos. The status line
+  notes `personal lexicon: N words`. Works with no model training at all.
+  Disable with `--no-personal-lexicon`.
+
+```bash
+./run.sh                 # single user
+./run.sh --user evan     # evan's model + evan's word list
 ```
 
 Full rationale and the roadmap beyond this: [docs/RECOGNITION.md](docs/RECOGNITION.md).
@@ -213,12 +239,16 @@ handwriting_app/
   widgets.py                 ProgressBar
   dataset.py                 read/write samples under data/samples/
   prompts.py + data/prompts.txt   freeform word list
+  models.py                  auto-discover the model dir (personal > generic)
+  lexicon.py                 build a personal word list from sample labels
+  naming.py                  user-name -> safe path slug
   recognizer/
     base.py                  Recognizer interface + RecognitionError
     tesseract_recognizer.py  default backend (subprocess)
     trocr_onnx_recognizer.py neural backend (ONNX Runtime)
 scripts/export_trocr_onnx.py one-time ONNX export (+ --quantize)
 scripts/finetune_trocr.py    fine-tune on your samples (dev machine / GPU)
+scripts/train_personal.sh    fine-tune + export in one command
 docs/RECOGNITION.md          research notes and roadmap
 systemd/handwriting-app.service
 tests/

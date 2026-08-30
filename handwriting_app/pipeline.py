@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import Dict, List
 
 from handwriting_app.ink import Ink
 from handwriting_app.postprocess import SpellCorrector
@@ -20,13 +20,18 @@ class PipelineConfig:
     spell_compound: bool = False
     stroke_width: int = 8
     render_pad: int = 32
+    personal_lexicon: Dict[str, int] = field(default_factory=dict)
 
 
 class RecognitionPipeline:
     def __init__(self, recognizer: Recognizer, config: PipelineConfig) -> None:
         self.recognizer = recognizer
         self.config = config
-        self._corrector = SpellCorrector() if config.spellcheck else None
+        self._corrector = (
+            SpellCorrector(boost=config.personal_lexicon or None)
+            if config.spellcheck
+            else None
+        )
 
     @property
     def notes(self) -> List[str]:
@@ -35,6 +40,8 @@ class RecognitionPipeline:
             self._corrector is None or not self._corrector.available
         ):
             notes.append("dictionary correction off (pip install symspellpy)")
+        elif self._corrector is not None and self._corrector.boosted:
+            notes.append(f"personal lexicon: {self._corrector.boosted} words")
         return notes
 
     def run(self, ink: Ink) -> str:

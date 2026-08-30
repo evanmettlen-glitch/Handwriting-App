@@ -23,3 +23,17 @@ def test_corrector_fixes_typos_when_dictionary_present():
     assert corrector.correct_line("teh cat") == "the cat"
     # unknown-but-plausible tokens and casing are preserved
     assert corrector.correct_word("Xyzzy").istitle()
+
+
+def test_personal_lexicon_protects_own_words_but_still_fixes_typos():
+    plain = SpellCorrector()
+    if not plain.available:
+        return
+    boosted = SpellCorrector(boost={"priya": 3, "homehub": 1})
+    assert boosted.boosted == 2
+    # a real name the generic dictionary would otherwise "correct"
+    assert plain.correct_word("Priya") != "Priya"
+    assert boosted.correct_word("Priya") == "Priya"
+    assert boosted.correct_word("homehub") == "homehub"
+    # genuine typos are still fixed
+    assert boosted.correct_word("teh") == "the"

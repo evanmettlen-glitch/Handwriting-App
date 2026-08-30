@@ -18,14 +18,14 @@ _COMPONENTS = ("encoder_model", "decoder_model", "decoder_with_past_model")
 
 
 class TrocrOnnxRecognizer(Recognizer):
-    name = "trocr-onnx"
-
     def __init__(
         self,
         model_dir: str,
         max_new_tokens: int = 64,
         num_threads: int = 4,
     ) -> None:
+        self.model_dir = model_dir
+        self.name = f"trocr:{os.path.basename(os.path.normpath(model_dir))}"
         self.max_new_tokens = max_new_tokens
         try:
             from optimum.onnxruntime import ORTModelForVision2Seq

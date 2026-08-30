@@ -7,9 +7,15 @@ installed, :class:`SpellCorrector` is a no-op and reports itself unavailable.
 from __future__ import annotations
 
 import re
+from typing import Mapping, Optional
 
 _TOKEN = re.compile(r"\S+|\s+")
 _AFFIX = re.compile(r"^(\W*)(.*?)(\W*)$", re.DOTALL)
+
+# How strongly a personally-collected word outranks dictionary corrections.
+# ~mid-frequency in the bundled English dictionary, so common words still win
+# but the corrector stops "fixing" the user's own vocabulary.
+_PERSONAL_WEIGHT = 5_000_000
 
 
 def _match_case(source: str, replacement: str) -> str:
@@ -21,10 +27,15 @@ def _match_case(source: str, replacement: str) -> str:
 
 
 class SpellCorrector:
-    def __init__(self, max_edit_distance: int = 2) -> None:
+    def __init__(
+        self,
+        max_edit_distance: int = 2,
+        boost: Optional[Mapping[str, int]] = None,
+    ) -> None:
         self._max_edit_distance = max_edit_distance
         self._sym = None
         self._verbosity = None
+        self.boosted = 0
         try:
             import importlib.resources as resources
 
@@ -46,6 +57,13 @@ class SpellCorrector:
             return
         self._sym = sym
         self._verbosity = Verbosity.TOP
+
+        for term, times in (boost or {}).items():
+            term = term.lower().strip()
+            if len(term) < 2 or not term.replace("'", "").isalpha():
+                continue
+            sym.create_dictionary_entry(term, max(1, times) * _PERSONAL_WEIGHT)
+            self.boosted += 1
 
     @property
     def available(self) -> bool:

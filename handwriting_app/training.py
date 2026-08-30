@@ -25,6 +25,7 @@ from handwriting_app.enrollment import (
     char_coverage,
     is_enrolled,
 )
+from handwriting_app.naming import user_slug
 from handwriting_app.prompts import load_prompts
 from handwriting_app.widgets import ProgressBar
 
@@ -176,6 +177,7 @@ class TrainingApp(tk.Tk):
             + ("  —  goal reached" if done >= self.target else "")
         )
 
+        enrolled = False
         if self.enroll:
             coverage = self._coverage()
             enrolled = is_enrolled(done, coverage, self.target)
@@ -191,6 +193,12 @@ class TrainingApp(tk.Tk):
             self.btn_save.config(state="disabled")
         else:
             self.prompt_label.config(text=f"“{self.prompts[self.index]}”")
+
+        if enrolled and self.session_saved:
+            name = user_slug(self.cfg.user) if self.cfg.user else "personal"
+            self.status.config(
+                text=f"Enrolled ✓  ·  next: ./scripts/train_personal.sh {name}"
+            )
 
     def _tick(self) -> None:
         elapsed = time.monotonic() - self._start

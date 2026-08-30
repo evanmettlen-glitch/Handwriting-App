@@ -168,6 +168,12 @@ class HandwritingApp(tk.Tk):
     def _load_recognizer(self) -> None:
         try:
             recognizer = build_recognizer(self.cfg)
+            lexicon = {}
+            if self.cfg.personal_lexicon:
+                from handwriting_app.lexicon import personal_word_counts
+
+                # cfg.samples_dir already includes the --user subfolder, if any.
+                lexicon = dict(personal_word_counts(self.cfg.samples_dir))
             pipeline = RecognitionPipeline(
                 recognizer,
                 PipelineConfig(
@@ -178,6 +184,7 @@ class HandwritingApp(tk.Tk):
                     spell_compound=self.cfg.spell_compound,
                     stroke_width=self.cfg.stroke_width,
                     render_pad=self.cfg.render_pad,
+                    personal_lexicon=lexicon,
                 ),
             )
         except RecognitionError as exc:

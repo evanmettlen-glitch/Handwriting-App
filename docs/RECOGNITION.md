@@ -62,8 +62,14 @@ labelled samples is very achievable.
   *same* `Ink.render(deslant=True)` the live pipeline uses, applies light affine
   augmentation, and fine-tunes `trocr-small-handwritten` for a few epochs
   (reports train loss + val CER). `--dry-run` inspects the data without torch.
-- Export the result with `scripts/export_trocr_onnx.py --model models/trocr-personal`
-  and point `--model-dir` at the ONNX folder.
+- `scripts/train_personal.sh [name]` does fine-tune + ONNX export in one step.
+- The app then loads it automatically: `models.resolve_model_dir()` prefers
+  `models/<user>-onnx` (with `--user`), then `models/trocr-personal-onnx`, then a
+  generic model, then tesseract.
+- **Zero-training personalization** (`lexicon.py`): every word from the collected
+  sample labels is added to the SymSpell dictionary as a known term, so the
+  corrector stops turning the user's names/jargon into dictionary words. Active
+  by default whenever `data/samples/` has anything in it.
 
 This is the highest value-per-hour path after phase 1.
 
