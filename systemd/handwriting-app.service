@@ -1,0 +1,23 @@
+# Kiosk autostart on X11 sessions. Copy to /etc/systemd/system/ and:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now handwriting-app.service
+#
+# On Wayland (default on Pi 5 / Bookworm) prefer the compositor autostart
+# instead - see the README "Run at boot" section.
+
+[Unit]
+Description=Handwriting to Text (touchscreen kiosk)
+After=graphical.target
+PartOf=graphical.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/HandWritingApp
+Environment=DISPLAY=:0
+ExecStart=/home/pi/HandWritingApp/run.sh --fullscreen
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

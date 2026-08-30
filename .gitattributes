@@ -1,0 +1,6 @@
+# Target platform is Linux (Raspberry Pi); keep LF line endings everywhere so
+# shell scripts stay executable and diffs stay clean.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.onnx binary

@@ -1,0 +1,3 @@
+# Core dependencies for the default (tesseract) backend.
+# System packages are installed by install.sh: python3-tk, tesseract-ocr
+pillow>=10.0

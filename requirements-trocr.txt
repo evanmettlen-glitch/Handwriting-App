@@ -1,0 +1,5 @@
+# Extra dependencies for the optional neural backend (--backend trocr).
+# Large: pulls in PyTorch + Transformers (~1 GB). Pi 5 with >=4 GB RAM recommended.
+optimum[onnxruntime]>=1.17
+transformers>=4.36
+torch>=2.2

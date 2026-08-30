@@ -1,0 +1,59 @@
+"""Neural backend: Microsoft TrOCR (handwritten) running on ONNX Runtime.
+
+Much stronger than tesseract on real handwriting, at the cost of a large
+dependency footprint and ~1-3 s per line on the Pi 5 CPU. The model is exported
+once with ``python -m scripts.export_trocr_onnx``.
+"""
+
+from __future__ import annotations
+
+import os
+
+from PIL import Image
+
+from .base import RecognitionError, Recognizer
+
+
+class TrocrOnnxRecognizer(Recognizer):
+    name = "trocr-onnx"
+
+    def __init__(self, model_dir: str, max_new_tokens: int = 64) -> None:
+        self.max_new_tokens = max_new_tokens
+        try:
+            from optimum.onnxruntime import ORTModelForVision2Seq
+            from transformers import TrOCRProcessor
+        except ImportError as exc:
+            raise RecognitionError(
+                "The 'trocr' backend needs extra packages. Install them with:\n"
+                "  pip install -r requirements-trocr.txt"
+            ) from exc
+
+        if not os.path.isdir(model_dir):
+            raise RecognitionError(
+                f"Model directory '{model_dir}' does not exist.\n"
+                "Create it once with:\n"
+                "  python -m scripts.export_trocr_onnx"
+            )
+
+        try:
+            self._processor = TrOCRProcessor.from_pretrained(model_dir)
+            self._model = ORTModelForVision2Seq.from_pretrained(
+                model_dir, use_io_binding=False
+            )
+        except Exception as exc:  # noqa: BLE001 - surface any load failure to the UI
+            raise RecognitionError(f"failed to load TrOCR model: {exc}") from exc
+
+    def recognize(self, image: Image.Image) -> str:
+        try:
+            pixel_values = self._processor(
+                images=image.convert("RGB"), return_tensors="pt"
+            ).pixel_values
+            generated_ids = self._model.generate(
+                pixel_values=pixel_values, max_new_tokens=self.max_new_tokens
+            )
+            text = self._processor.batch_decode(
+                generated_ids, skip_special_tokens=True
+            )[0]
+        except Exception as exc:  # noqa: BLE001
+            raise RecognitionError(f"TrOCR inference failed: {exc}") from exc
+        return text.strip()
