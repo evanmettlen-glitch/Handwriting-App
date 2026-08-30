@@ -55,6 +55,13 @@ def test_filenames_are_indexed_and_slugged(tmp_path):
     assert p2.name.startswith("0002_")
 
 
+def test_user_flag_scopes_the_samples_dir():
+    from handwriting_app.config import parse_args
+
+    cfg = parse_args(["--train", "--user", "Alice B."])
+    assert cfg.samples_dir.replace("\\", "/").endswith("data/samples/Alice_B.")
+
+
 def test_builtin_prompts_load():
     prompts = load_prompts()
     assert len(prompts) > 100

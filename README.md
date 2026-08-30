@@ -119,6 +119,8 @@ Samples land in `data/samples/` and resume automatically.
 
 `--freeform` (or `--prompts-file FILE`) switches to an open-ended word list for
 collecting more; `--enroll-target N` changes what counts as 100%.
+`--user NAME` keeps each person's samples in their own `data/samples/NAME/`
+folder (re-running resumes where that user left off).
 
 Then, on a machine with a GPU (the Pi only does inference):
 

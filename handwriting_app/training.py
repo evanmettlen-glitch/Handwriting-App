@@ -18,7 +18,7 @@ from typing import List
 
 from handwriting_app.canvas_widget import InkCanvas
 from handwriting_app.config import AppConfig
-from handwriting_app.dataset import count_samples, iter_samples, save_sample
+from handwriting_app.dataset import iter_samples, save_sample
 from handwriting_app.enrollment import (
     ENROLLMENT_PROMPTS,
     Coverage,
@@ -52,7 +52,16 @@ class TrainingApp(tk.Tk):
         if not self.prompts:
             raise SystemExit("Prompt list is empty.")
 
-        self.index = min(count_samples(self.samples_dir), len(self.prompts))
+        # Resume within the fixed prompt sequence by skipping prompts whose exact
+        # label was already collected (a returning user), not by raw file count.
+        done_labels = {s.label for s in iter_samples(self.samples_dir)}
+        self._prior = min(
+            sum(1 for p in self.prompts if p in done_labels), self.target
+        )
+        self.index = 0
+        while self.index < len(self.prompts) and self.prompts[self.index] in done_labels:
+            self.index += 1
+
         self.session_saved = 0
         self._start = time.monotonic()
         self._tick_job = None
@@ -156,18 +165,20 @@ class TrainingApp(tk.Tk):
     def _coverage(self) -> Coverage:
         return char_coverage(s.label for s in iter_samples(self.samples_dir))
 
-    def _refresh(self) -> None:
-        self.bar.set(self.session_saved / self.target if self.target else 0.0)
+    def _progress(self) -> int:
+        return min(self.target, self._prior + self.session_saved)
 
-        total = len(self.prompts)
+    def _refresh(self) -> None:
+        done = self._progress()
+        self.bar.set(done / self.target if self.target else 0.0)
         self.count_label.config(
-            text=f"{self.session_saved} / {self.target} this session"
-            + ("" if self.session_saved < self.target else "  —  goal reached")
+            text=f"{done} / {self.target}"
+            + ("  —  goal reached" if done >= self.target else "")
         )
 
         if self.enroll:
             coverage = self._coverage()
-            enrolled = is_enrolled(self.session_saved, coverage, self.target)
+            enrolled = is_enrolled(done, coverage, self.target)
             self.coverage_label.config(
                 text=("enrolled ✓   " if enrolled else "") + coverage.summary()
             )
@@ -184,7 +195,7 @@ class TrainingApp(tk.Tk):
     def _tick(self) -> None:
         elapsed = time.monotonic() - self._start
         text = _fmt_mmss(elapsed)
-        remaining = max(0, self.target - self.session_saved)
+        remaining = max(0, self.target - self._progress())
         if remaining and self.session_saved >= 3:
             per = elapsed / self.session_saved
             text += f"   ·   ~{max(1, math.ceil(remaining * per / 60))} min left"

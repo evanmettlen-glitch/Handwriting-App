@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import re
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -132,6 +134,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where training samples are read/written (default: data/samples).",
     )
     train.add_argument(
+        "--user",
+        default="",
+        help="Collect into a per-person subfolder: <samples-dir>/<user>.",
+    )
+    train.add_argument(
         "--prompts-file",
         default=AppConfig.prompts_file,
         help="Custom prompt list (one word/phrase per line); implies --freeform.",
@@ -153,6 +160,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def parse_args(argv=None) -> AppConfig:
     args = build_parser().parse_args(argv)
+    samples_dir = args.samples_dir
+    if args.user:
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", args.user).strip("_") or "user"
+        samples_dir = str(Path(samples_dir) / safe)
     return AppConfig(
         backend=args.backend,
         lang=args.lang,
@@ -171,7 +182,7 @@ def parse_args(argv=None) -> AppConfig:
         spellcheck=args.spellcheck,
         spell_compound=args.spell_compound,
         train=args.train,
-        samples_dir=args.samples_dir,
+        samples_dir=samples_dir,
         prompts_file=args.prompts_file,
         freeform=args.freeform,
         enroll_target=args.enroll_target,
