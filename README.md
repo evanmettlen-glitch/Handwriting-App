@@ -69,7 +69,7 @@ For higher accuracy (slower, ~3-5 s/line on a Pi 5) export the base model:
 - Or tap **Recognize**.
 - **Space / ⌫ / ↵** edit the output; the box is also directly editable with a keyboard.
 - **Copy all** puts the text on the clipboard.
-- `F11` toggles fullscreen, `Esc` exits it.
+- **Exit** quits the app (or `Ctrl+Q`). `F11` toggles fullscreen, `Esc` leaves fullscreen.
 
 ### Flags
 

@@ -97,6 +97,7 @@ class HandwritingApp(tk.Tk):
             self._mk_button(panel, "↵  Newline", lambda: self._edit_output("\n")),
             self._mk_button(panel, "Copy all", self._copy_all, bg="#2f9e44"),
             self._mk_button(panel, "Clear text", self._clear_output, bg="#c92a2a"),
+            self._mk_button(panel, "Exit", self._on_close, bg="#555555"),
         ]
         for button in buttons:
             button.pack(fill="x", pady=4)
@@ -144,6 +145,7 @@ class HandwritingApp(tk.Tk):
         self.bind("<Escape>", lambda _e: self._set_fullscreen(False))
         self.bind("<Control-Return>", lambda _e: self._recognize_now())
         self.bind("<Control-l>", lambda _e: self._clear_pad())
+        self.bind("<Control-q>", lambda _e: self._on_close())
 
     # -- fullscreen helpers ------------------------------------------------
     def _is_fullscreen(self) -> bool:
