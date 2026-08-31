@@ -1,10 +1,11 @@
-# For fine-tuning + exporting a personal model (scripts/train_personal.sh).
+# For fine-tuning a personal model (scripts/finetune_trocr.py).
 # Run on a dev machine / GPU box if you can; on a Pi 5 CPU expect 20-40 min.
 #
-# transformers is pinned < 5: optimum's ONNX export and TrOCR's tokenizer do
-# not yet work on the v5 tokenizer backend.
+# NOTE: fine-tuning needs ~150-300+ samples to beat the stock checkpoint. With a
+# short enrollment use scripts/calibrate.py instead — see docs/RECOGNITION.md.
 torch>=2.2
-transformers>=4.36,<5
-optimum[onnxruntime]>=1.17,<2
-sentencepiece>=0.1.99
+transformers>=4.36
 pillow>=10.0
+
+# Only needed for the optional ONNX export step (scripts/export_trocr_onnx.py):
+#   pip install "optimum[onnxruntime]"

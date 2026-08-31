@@ -26,14 +26,14 @@ finger / stylus ─▶ USB touch panel (evdev → pointer events)
 
 Two interchangeable recognition backends:
 
-| Backend      | Weight             | Accuracy                                     | Setup                 |
-|--------------|--------------------|----------------------------------------------|-----------------------|
-| `tesseract`  | tiny (apt package) | OK for block printing only; poor on cursive  | none                  |
-| `trocr`      | large (~1 GB)      | strong on messy print and cursive            | one-time model export |
+| Backend      | Weight             | Accuracy                                     | Setup                    |
+|--------------|--------------------|----------------------------------------------|--------------------------|
+| `tesseract`  | tiny (apt package) | OK for block printing only; poor on cursive  | none                     |
+| `trocr`      | ~1 GB              | strong on messy print and cursive            | `pip install` only       |
 
-`--backend auto` (the default) uses `trocr` when its model has been exported,
-otherwise `tesseract`. See [docs/RECOGNITION.md](docs/RECOGNITION.md) for the
-research notes and the roadmap (personal fine-tuning, online stroke model).
+`--backend auto` (the default) uses `trocr` when torch + transformers are
+installed, otherwise `tesseract`. See [docs/RECOGNITION.md](docs/RECOGNITION.md)
+for the research notes and the roadmap.
 
 ## Install
 
@@ -47,25 +47,32 @@ cd ~/HandWritingApp
 `install.sh` installs `python3-tk` and `tesseract-ocr`, creates a `.venv`, and
 installs Pillow + symspellpy (the English dictionary for output correction).
 
-### Optional: neural backend (recommended for real handwriting)
+### Neural backend (needed for real handwriting)
 
 `tesseract` is an OCR engine for printed text — it misreads most handwriting.
-For anything other than careful block capitals, use TrOCR:
+For anything other than careful block capitals, install TrOCR:
 
 ```bash
 ./.venv/bin/pip install -r requirements-trocr.txt
-./.venv/bin/python -m scripts.export_trocr_onnx      # small model, downloads + converts once
-./run.sh --backend trocr
+./run.sh
 ```
 
-For higher accuracy (slower, ~3-5 s/line on a Pi 5) export the base model:
+That's it — no export step. The model (`microsoft/trocr-base-handwritten`)
+downloads and caches on first run, and `--backend auto` picks it up
+automatically. Expect ~3–8 s/line on a Pi 5 CPU.
+
+**Optional speed-up.** Exporting to ONNX roughly halves latency, and the app
+prefers an exported model automatically when it finds one:
 
 ```bash
+./.venv/bin/pip install "optimum[onnxruntime]"
 ./.venv/bin/python -m scripts.export_trocr_onnx \
     --model microsoft/trocr-base-handwritten \
-    --out models/trocr-base-handwritten-onnx
-./run.sh --backend trocr --model-dir models/trocr-base-handwritten-onnx
+    --out models/trocr-base-handwritten-onnx --quantize
 ```
+
+Skip this if `optimum` fights your torch version — it pins awkwardly against
+newer releases, and the torch path works fine without it.
 
 ## Using it
 
@@ -263,8 +270,9 @@ handwriting_app/
   naming.py                  user-name -> safe path slug
   recognizer/
     base.py                  Recognizer interface + RecognitionError
-    tesseract_recognizer.py  default backend (subprocess)
-    trocr_onnx_recognizer.py neural backend (ONNX Runtime)
+    tesseract_recognizer.py  fallback backend (subprocess)
+    trocr_torch_recognizer.py neural backend, plain torch (no export needed)
+    trocr_onnx_recognizer.py  same model via ONNX Runtime (faster, optional)
 scripts/export_trocr_onnx.py one-time ONNX export (+ --quantize)
 scripts/finetune_trocr.py    fine-tune on your samples (dev machine / GPU)
 scripts/train_personal.sh    fine-tune + export in one command

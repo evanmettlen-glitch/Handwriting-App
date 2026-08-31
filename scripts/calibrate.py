@@ -39,7 +39,11 @@ RENDER_GRID = [
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--samples", default="data/samples")
-    p.add_argument("--backend", default="auto", choices=["auto", "tesseract", "trocr"])
+    p.add_argument(
+        "--backend",
+        default="auto",
+        choices=["auto", "tesseract", "trocr", "trocr-torch", "trocr-onnx"],
+    )
     p.add_argument("--model-dir", default="")
     p.add_argument("--limit", type=int, default=0, help="Only use the first N samples.")
     p.add_argument(

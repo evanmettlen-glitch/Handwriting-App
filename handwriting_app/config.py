@@ -48,9 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--backend",
-        choices=["auto", "tesseract", "trocr"],
+        choices=["auto", "tesseract", "trocr", "trocr-torch", "trocr-onnx"],
         default=AppConfig.backend,
-        help="Recognition engine (default: auto).",
+        help="Recognition engine (default: auto). 'trocr' uses ONNX when an "
+        "exported model is present, else plain torch.",
     )
     p.add_argument(
         "--lang",
@@ -71,7 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--model-dir",
         default=AppConfig.model_dir,
-        help="TrOCR ONNX model directory (default: auto-discover a personal or generic model).",
+        help="TrOCR model: a local directory or a Hugging Face id "
+        "(default: auto-discover a personal model, else download the base one).",
     )
     p.add_argument(
         "--user",
