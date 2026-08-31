@@ -157,6 +157,21 @@ Or do both steps at once (runs on the Pi too, ~20–40 min on CPU):
 > enrollment, use calibration below instead — it's the same idea Apple uses:
 > keep one strong general model and adapt around it rather than retraining it.
 
+### Measuring accuracy
+
+```bash
+python -m scripts.eval_backend            # one pass, prints per-sample results
+python -m scripts.eval_backend --quiet    # summary only
+```
+
+Reports CER and exact-match accuracy, **split into natural-language prompts and
+rote coverage prompts** (alphabet runs, digit strings). That split matters:
+TrOCR's decoder is a language model, so it mangles `abcdefghijklm` however
+neatly you wrote it. A single rote sample can drag an aggregate score from 0.05
+to 0.75 — judge the model on the natural-language number.
+
+Use this to check whether a change actually helped before keeping it.
+
 ### Calibration — personalization in minutes, no training
 
 ```bash
@@ -277,6 +292,7 @@ scripts/export_trocr_onnx.py one-time ONNX export (+ --quantize)
 scripts/finetune_trocr.py    fine-tune on your samples (dev machine / GPU)
 scripts/train_personal.sh    fine-tune + export in one command
 scripts/calibrate.py         no-training personalization -> calibration.json
+scripts/eval_backend.py      measure CER / accuracy on labelled samples
 docs/RECOGNITION.md          research notes and roadmap
 systemd/handwriting-app.service
 tests/

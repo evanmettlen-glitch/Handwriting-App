@@ -59,17 +59,16 @@ on purpose, which is standard practice (Graves 2009). Two consequences:
 
 ## Stages
 
-### Stage 0 — evaluation harness *(1–2 days)* — **do this first**
+### Stage 0 — evaluation harness — **done**
 
-Nothing else is measurable without it.
+`scripts/eval_backend.py`: runs any backend over a sample folder and reports CER
+plus exact-match accuracy, per sample and in aggregate.
 
-- `scripts/eval_backend.py`: run any backend over a sample folder, report CER,
-  word accuracy, and per-character confusion.
-- Establishes the number to beat: **current TrOCR-base CER on your 40 samples.**
-- Reuses `textalign.cer()` and `char_confusions()`, which already exist.
-
-Deliverable: one command that prints a CER for any backend. Everything after
-this is judged against it.
+Critically, it **splits natural-language prompts from rote coverage prompts**
+(`abcdefghijklm`, `0123456789`, …). A language-model decoder mangles rote
+sequences however neatly they were written, so mixing them into one score is
+misleading — in testing, a single rote sample moved an aggregate from CER 0.05
+to 0.75. Every accuracy claim below is the *natural-language* number.
 
 ### Stage 1 — stroke features *(1–2 days)*
 
@@ -161,11 +160,15 @@ Greedy CTC first (trivial, ships in stage 4). Then the part that matters:
 3. **Register for IAM-OnDB now?** It's the long-lead item and costs nothing to
    start.
 
-## Suggested first move
+## Where this stands
 
-Stage 0 alone — the eval harness. It's 1–2 days, it's useful immediately
-regardless of whether phase 3 ever happens (it tells you whether calibration and
-the base model are helping), and it produces the baseline number that every
-later decision depends on.
+Stage 0 is built. The gating question is now simply: **what is TrOCR-base's CER
+on the natural-language samples?**
 
-I'd build stage 0 next, then start the IAM-OnDB registration while it runs.
+- **< 0.15** — the model reads your hand well. Phase 3 becomes a *latency*
+  project (5 s → 100 ms), not an accuracy one. Worth doing, but not urgent.
+- **0.15–0.35** — phase 3 is justified; stroke input should close most of it.
+- **> 0.35** — check the failure mode first. If words come out as plausible but
+  wrong English, it's the model. If they're garbage, suspect capture quality
+  (Tk event coalescing producing sparse, jagged strokes) — which phase 3 alone
+  would *not* fix.

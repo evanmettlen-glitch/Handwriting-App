@@ -50,6 +50,26 @@ ENROLLMENT_PROMPTS: List[str] = [
 
 DEFAULT_TARGET = len(ENROLLMENT_PROMPTS)
 
+# Prompts that exist for character coverage, not to be read as language.
+# A language-model decoder (TrOCR, and any CTC model with an LM) will mangle
+# these however neatly they are written, so aggregate accuracy over them is
+# misleading. Evaluation reports them separately.
+ROTE_PROMPTS = frozenset(
+    {
+        "abcdefghijklm",
+        "nopqrstuvwxyz",
+        "ABCDEFGHIJKLM",
+        "NOPQRSTUVWXYZ",
+        "0123456789",
+        "3.14159",
+        "0 1 2 3 4 5 6 7 8 9",
+    }
+)
+
+
+def is_rote(label: str) -> bool:
+    return label in ROTE_PROMPTS
+
 
 @dataclass
 class Coverage:
