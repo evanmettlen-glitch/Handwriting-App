@@ -162,7 +162,7 @@ def main() -> None:
     print(f"train: {len(train_samples)}   val: {len(val_samples)}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    processor = TrOCRProcessor.from_pretrained(args.base)
+    processor = TrOCRProcessor.from_pretrained(args.base, use_fast=False)
     model = VisionEncoderDecoderModel.from_pretrained(args.base).to(device)
     model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
     model.config.pad_token_id = processor.tokenizer.pad_token_id

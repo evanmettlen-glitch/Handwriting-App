@@ -54,7 +54,7 @@ def main() -> None:
     print(f"Exporting {args.model} -> {args.out} (downloads the model once)…")
     model = ORTModelForVision2Seq.from_pretrained(args.model, export=True)
     model.save_pretrained(args.out)
-    TrOCRProcessor.from_pretrained(args.model).save_pretrained(args.out)
+    TrOCRProcessor.from_pretrained(args.model, use_fast=False).save_pretrained(args.out)
 
     if args.quantize:
         print("Quantizing to int8…")

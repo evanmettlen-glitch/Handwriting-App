@@ -1,7 +1,10 @@
-# For fine-tuning a personal model with scripts/finetune_trocr.py.
-# Run on a dev machine / GPU box, NOT the Pi. A CUDA build of torch is strongly
-# recommended (CPU training works but is slow).
+# For fine-tuning + exporting a personal model (scripts/train_personal.sh).
+# Run on a dev machine / GPU box if you can; on a Pi 5 CPU expect 20-40 min.
+#
+# transformers is pinned < 5: optimum's ONNX export and TrOCR's tokenizer do
+# not yet work on the v5 tokenizer backend.
 torch>=2.2
-transformers>=4.36
+transformers>=4.36,<5
+optimum[onnxruntime]>=1.17,<2
 sentencepiece>=0.1.99
 pillow>=10.0

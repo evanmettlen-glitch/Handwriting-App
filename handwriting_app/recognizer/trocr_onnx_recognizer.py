@@ -47,7 +47,7 @@ class TrocrOnnxRecognizer(Recognizer):
         session_options = self._session_options(num_threads)
 
         try:
-            self._processor = TrOCRProcessor.from_pretrained(model_dir)
+            self._processor = TrOCRProcessor.from_pretrained(model_dir, use_fast=False)
             self._model = ORTModelForVision2Seq.from_pretrained(
                 model_dir,
                 use_io_binding=False,
