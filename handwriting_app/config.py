@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from handwriting_app.naming import user_slug
 
@@ -25,8 +26,9 @@ class AppConfig:
     font_scale: float = 1.0
     clear_after_recognize: bool = True
     append_separator: str = " "
-    # recognition pipeline
-    segment: bool = True
+    # recognition pipeline. segment=None means auto: off for line-trained
+    # models (TrOCR), on for tesseract. See pipeline.resolve_segment().
+    segment: Optional[bool] = None
     word_gap_ratio: float = 0.4
     deslant: bool = True
     smooth: bool = True
@@ -123,8 +125,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-segment",
         dest="segment",
-        action="store_false",
-        help="Recognize the whole line at once instead of word by word.",
+        action="store_const",
+        const=False,
+        default=None,
+        help="Recognize the whole line at once (the default for TrOCR).",
+    )
+    p.add_argument(
+        "--segment",
+        dest="segment",
+        action="store_const",
+        const=True,
+        help="Force word-by-word recognition (the default for tesseract).",
     )
     p.add_argument(
         "--word-gap-ratio",

@@ -24,7 +24,11 @@ from handwriting_app.config import AppConfig
 from handwriting_app.dataset import iter_samples
 from handwriting_app.enrollment import is_rote
 from handwriting_app.lexicon import personal_word_counts
-from handwriting_app.pipeline import PipelineConfig, RecognitionPipeline
+from handwriting_app.pipeline import (
+    PipelineConfig,
+    RecognitionPipeline,
+    resolve_segment,
+)
 from handwriting_app.recognizer import build_recognizer
 from handwriting_app.textalign import cer
 
@@ -53,6 +57,18 @@ def parse_args() -> argparse.Namespace:
         dest="calibration",
         action="store_false",
         help="Ignore calibration.json even if present.",
+    )
+    p.add_argument(
+        "--no-segment",
+        dest="segment",
+        action="store_const",
+        const=False,
+        default=None,
+        help="Recognize whole lines (the default for TrOCR).",
+    )
+    p.add_argument(
+        "--segment", dest="segment", action="store_const", const=True,
+        help="Force word-by-word recognition.",
     )
     p.add_argument("--quiet", action="store_true", help="Summary only.")
     return p.parse_args()
@@ -88,6 +104,7 @@ def main() -> None:
     pipeline = RecognitionPipeline(
         recognizer,
         PipelineConfig(
+            segment=resolve_segment(args.segment, recognizer.name),
             spellcheck=args.spellcheck,
             personal_lexicon=lexicon,
             calibration=calibration,

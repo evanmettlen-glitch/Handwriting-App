@@ -74,7 +74,7 @@ def main() -> None:
     total_strokes = 0
     widths: list[float] = []
 
-    seg_wrong = 0
+    seg_wrong = split = merged = 0
     print(f"{len(samples)} samples from {args.samples}\n")
     print(
         f"{'label':<28} {'strokes':>7} {'points':>7} {'med gap':>8} "
@@ -93,6 +93,10 @@ def main() -> None:
         got_words = len(segment_words(sample.ink, gap_ratio=args.gap_ratio))
         if got_words != want_words:
             seg_wrong += 1
+            if got_words > want_words:
+                split += 1
+            else:
+                merged += 1
 
         all_gaps.extend(gaps)
         total_points += points
@@ -126,8 +130,8 @@ def main() -> None:
     print(f"median width     {median(widths):.0f} px")
     print(f"sparse samples   {sparse}/{len(samples)} (median gap > {SPARSE_PX:.0f} px)")
     print(
-        f"mis-segmented    {seg_wrong}/{len(samples)} "
-        f"at --gap-ratio {args.gap_ratio}"
+        f"mis-segmented    {seg_wrong}/{len(samples)} at --gap-ratio "
+        f"{args.gap_ratio}  ({split} over-split, {merged} merged)"
     )
 
     if args.sweep:
@@ -156,14 +160,22 @@ def main() -> None:
         )
 
     print()
-    if seg_wrong > len(samples) * 0.25:
+    if split > len(samples) * 0.15:
         print(
-            "VERDICT: WORD SEGMENTATION is the problem. Words are being split or\n"
-            "merged before recognition, so the model is handed fragments rather than\n"
-            "words — which produces random errors immune to render tuning.\n"
-            "Find a better threshold, then use it:\n"
-            "  python -m scripts.inspect_ink --sweep\n"
-            "  ./run.sh --word-gap-ratio <best>        (or --no-segment)\n"
+            "VERDICT: words are being OVER-SPLIT — the recognizer is handed letter\n"
+            "fragments instead of words, which produces random errors immune to\n"
+            "render tuning. Raise the threshold:\n"
+            "  ./run.sh --word-gap-ratio <best above>\n"
+        )
+    elif merged > len(samples) * 0.25:
+        print(
+            "VERDICT: words are being MERGED into whole lines.\n"
+            "For TrOCR this is FINE — it was trained on IAM text lines and uses\n"
+            "cross-word context, so a whole line is what it wants. Segmentation only\n"
+            "helps tesseract. Run the line-at-a-time path (the default for TrOCR):\n"
+            "  ./run.sh --no-segment\n"
+            "If accuracy is still poor, the model is the limit, not the plumbing:\n"
+            "  python -m scripts.eval_backend --no-segment\n"
         )
     elif overall > SPARSE_PX:
         print(

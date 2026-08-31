@@ -22,6 +22,7 @@ from typing import Dict, List
 from handwriting_app.calibration import Calibration, save
 from handwriting_app.config import AppConfig
 from handwriting_app.dataset import iter_samples
+from handwriting_app.pipeline import resolve_segment
 from handwriting_app.recognizer import build_recognizer
 from handwriting_app.segmentation import segment_words
 from handwriting_app.textalign import cer
@@ -55,7 +56,10 @@ def parse_args() -> argparse.Namespace:
         default=2,
         help="Times a word must be misread the same way to become a fix (default: 2).",
     )
-    p.add_argument("--no-segment", dest="segment", action="store_false")
+    p.add_argument(
+        "--no-segment", dest="segment", action="store_const", const=False, default=None
+    )
+    p.add_argument("--segment", dest="segment", action="store_const", const=True)
     p.add_argument(
         "--word-gap-ratio",
         type=float,
@@ -129,17 +133,19 @@ def main() -> None:
         )
     print(f"{len(samples)} samples from {args.samples}")
 
-    # --- 1. tune word segmentation (instant: no model involved) -------------
-    gap_ratio = (
-        tune_gap_ratio(samples, args.word_gap_ratio)
-        if args.segment
-        else args.word_gap_ratio
-    )
-
     recognizer = build_recognizer(
         AppConfig(backend=args.backend, model_dir=args.model_dir)
     )
-    print(f"recognizer: {recognizer.name}\n")
+    segment = resolve_segment(args.segment, recognizer.name)
+    print(f"recognizer: {recognizer.name}  ({'word-by-word' if segment else 'whole line'})")
+
+    # --- 1. tune word segmentation (instant: no model involved) -------------
+    gap_ratio = (
+        tune_gap_ratio(samples, args.word_gap_ratio)
+        if segment
+        else args.word_gap_ratio
+    )
+    print()
 
     # --- 2. pick the best render settings -----------------------------------
     best = None
@@ -150,7 +156,7 @@ def main() -> None:
             pred = recognize(
                 recognizer, sample.ink,
                 deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
-                segment=args.segment, gap_ratio=gap_ratio,
+                segment=segment, gap_ratio=gap_ratio,
             )
             total += cer(pred, sample.label)
         score = total / len(samples)
@@ -175,7 +181,7 @@ def main() -> None:
         pred = recognize(
             recognizer, sample.ink,
             deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
-            segment=args.segment, gap_ratio=gap_ratio,
+            segment=segment, gap_ratio=gap_ratio,
         )
         got = pred.split()
         want = sample.label.split()
@@ -203,7 +209,7 @@ def main() -> None:
         pred = recognize(
             recognizer, sample.ink,
             deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
-            segment=args.segment, gap_ratio=gap_ratio,
+            segment=segment, gap_ratio=gap_ratio,
         )
         total += cer(calibration.apply_fixes(pred), sample.label)
     calibration.tuned_cer = round(total / len(samples), 4)

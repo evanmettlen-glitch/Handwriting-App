@@ -12,6 +12,18 @@ from handwriting_app.recognizer import Recognizer
 from handwriting_app.segmentation import segment_words
 
 
+def resolve_segment(setting: Optional[bool], recognizer_name: str) -> bool:
+    """Whether to split ink into words before recognition.
+
+    ``None`` means auto. TrOCR was trained on IAM *lines* and its decoder uses
+    cross-word context, so feeding it whole lines beats feeding it words —
+    segmentation only helps tesseract, which is weak on multi-word images.
+    """
+    if setting is not None:
+        return setting
+    return not recognizer_name.startswith("trocr")
+
+
 @dataclass
 class PipelineConfig:
     segment: bool = True
@@ -36,6 +48,7 @@ class RecognitionPipeline:
             else None
         )
         # Calibration overrides the render settings it was measured with.
+        self.segment = config.segment
         cal = config.calibration
         self._deslant = cal.deslant if cal else config.deslant
         self._stroke_width = cal.stroke_width if cal else config.stroke_width
@@ -58,6 +71,7 @@ class RecognitionPipeline:
             if cal.tuned_cer is not None:
                 note += f" (CER {cal.tuned_cer:.2f})"
             notes.append(note)
+        notes.append("word-by-word" if self.segment else "whole line")
         return notes
 
     def run(self, ink: Ink) -> str:
@@ -66,12 +80,12 @@ class RecognitionPipeline:
 
         words = (
             segment_words(ink, gap_ratio=self._word_gap_ratio)
-            if self.config.segment
+            if self.segment
             else [ink]
         )
         if not words:
             words = [ink]
-        hint = "word" if len(words) > 1 or self.config.segment else "line"
+        hint = "word" if self.segment else "line"
 
         pieces: List[str] = []
         for word in words:

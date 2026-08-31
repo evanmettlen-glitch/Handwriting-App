@@ -180,10 +180,12 @@ class HandwritingApp(tk.Tk):
                 from handwriting_app.calibration import load as load_calibration
 
                 calibration = load_calibration(self.cfg.samples_dir)
+            from handwriting_app.pipeline import resolve_segment
+
             pipeline = RecognitionPipeline(
                 recognizer,
                 PipelineConfig(
-                    segment=self.cfg.segment,
+                    segment=resolve_segment(self.cfg.segment, recognizer.name),
                     word_gap_ratio=self.cfg.word_gap_ratio,
                     deslant=self.cfg.deslant,
                     smooth=self.cfg.smooth,

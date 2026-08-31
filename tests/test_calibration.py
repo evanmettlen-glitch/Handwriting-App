@@ -41,6 +41,19 @@ def test_roundtrip(tmp_path):
     assert loaded.samples == 40
 
 
+def test_resolve_segment_defaults_by_model_kind():
+    from handwriting_app.pipeline import resolve_segment
+
+    # TrOCR is line-trained: whole lines beat word fragments.
+    assert resolve_segment(None, "trocr-torch:trocr-base-handwritten") is False
+    assert resolve_segment(None, "trocr-onnx:personal") is False
+    # tesseract is weak on multi-word images, so split for it.
+    assert resolve_segment(None, "tesseract") is True
+    # explicit settings always win
+    assert resolve_segment(True, "trocr-torch:x") is True
+    assert resolve_segment(False, "tesseract") is False
+
+
 def test_calibrated_gap_ratio_overrides_the_config():
     from handwriting_app.ink import Ink
     from handwriting_app.pipeline import PipelineConfig, RecognitionPipeline

@@ -101,7 +101,8 @@ personalization:
 --no-calibration            ignore data/samples/calibration.json
 
 recognition pipeline:
---no-segment                recognize the whole line at once, not word by word
+--segment / --no-segment    word-by-word vs whole-line (default: whole line for
+                            TrOCR, word-by-word for tesseract)
 --word-gap-ratio R          word-break gap ÷ writing height (default 0.4)
 --no-deslant                keep slanted writing as-is
 --no-smooth                 render strokes as straight lines, not splines
@@ -176,16 +177,20 @@ It reports two things and names the likely culprit:
   default) interpolates a Catmull-Rom spline through the captured points to
   restore the curves; `--no-smooth` turns it off for comparison.
 - **word segmentation** — it compares the number of segments found against the
-  number of words in each label. Printed handwriting has inter-letter gaps that
-  can rival inter-word gaps, so words get chopped into fragments and the model
-  is asked to read single letters as words. Find a better threshold with:
+  number of words in each label, and reports over-splitting separately from
+  merging. **Over-splitting is the harmful one**: the model gets letter
+  fragments instead of words. Merging into whole lines is fine for TrOCR — it
+  was trained on IAM text lines and uses cross-word context, so a whole line is
+  what it wants.
 
 ```bash
 python -m scripts.inspect_ink --sweep     # then: ./run.sh --word-gap-ratio <best>
 ```
 
-`scripts/calibrate.py` tunes this automatically, and it costs nothing — word
-counts need no model inference.
+Segmentation defaults to **off for TrOCR** and **on for tesseract**; `--segment`
+and `--no-segment` override. `scripts/calibrate.py` tunes the threshold
+automatically when it applies, and it costs nothing — word counts need no
+model inference.
 
 ### Measuring accuracy
 
