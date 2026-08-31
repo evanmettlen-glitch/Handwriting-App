@@ -55,6 +55,25 @@ def test_filenames_are_indexed_and_slugged(tmp_path):
     assert p2.name.startswith("0002_")
 
 
+def test_calibration_sidecar_is_not_treated_as_a_sample(tmp_path):
+    """calibrate.py writes calibration.json into the samples dir."""
+    from handwriting_app.calibration import Calibration
+    from handwriting_app.calibration import save as save_calibration
+
+    save_sample(_ink(), "real sample", tmp_path)
+    save_calibration(Calibration(samples=1), tmp_path)
+
+    assert count_samples(tmp_path) == 1
+    assert [s.label for s in iter_samples(tmp_path)] == ["real sample"]
+
+
+def test_unreadable_sample_is_skipped_not_fatal(tmp_path):
+    save_sample(_ink(), "good", tmp_path)
+    (tmp_path / "9999_broken.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "9998_garbage.json").write_text("not json", encoding="utf-8")
+    assert [s.label for s in iter_samples(tmp_path)] == ["good"]
+
+
 def test_user_flag_scopes_the_samples_dir():
     from handwriting_app.config import parse_args
 

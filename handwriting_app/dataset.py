@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, Union
+from typing import Iterator, List, Union
 
 from handwriting_app import __version__
 from handwriting_app.ink import Ink
@@ -20,6 +20,9 @@ from handwriting_app.ink import Ink
 PathLike = Union[str, Path]
 _UNSAFE = re.compile(r"[^a-zA-Z0-9]+")
 MANIFEST = "manifest.jsonl"
+
+# Sidecar files that live alongside samples but are not samples themselves.
+NON_SAMPLE_FILES = frozenset({"calibration.json"})
 
 
 @dataclass
@@ -34,11 +37,20 @@ def _slug(label: str, max_len: int = 24) -> str:
     return slug[:max_len] or "sample"
 
 
-def count_samples(samples_dir: PathLike) -> int:
+def sample_paths(samples_dir: PathLike) -> List[Path]:
+    """Sample files in a directory, skipping sidecars like calibration.json."""
     directory = Path(samples_dir)
     if not directory.is_dir():
-        return 0
-    return sum(1 for _ in directory.glob("*.json"))
+        return []
+    return sorted(
+        path
+        for path in directory.glob("*.json")
+        if path.name not in NON_SAMPLE_FILES
+    )
+
+
+def count_samples(samples_dir: PathLike) -> int:
+    return len(sample_paths(samples_dir))
 
 
 def save_sample(
@@ -86,5 +98,13 @@ def load_sample(path: PathLike) -> Sample:
 
 
 def iter_samples(samples_dir: PathLike) -> Iterator[Sample]:
-    for path in sorted(Path(samples_dir).glob("*.json")):
-        yield load_sample(path)
+    """Yield every sample in a directory, skipping anything unreadable.
+
+    A stray or half-written JSON file should not take down the app, the
+    lexicon, or an evaluation run mid-way.
+    """
+    for path in sample_paths(samples_dir):
+        try:
+            yield load_sample(path)
+        except (KeyError, ValueError, OSError):
+            continue
