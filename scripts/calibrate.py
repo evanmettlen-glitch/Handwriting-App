@@ -26,13 +26,16 @@ from handwriting_app.recognizer import build_recognizer
 from handwriting_app.segmentation import segment_words
 from handwriting_app.textalign import cer
 
-# (deslant, stroke_width, pad) combinations worth trying.
+# (deslant, stroke_width, pad, smooth) combinations worth trying.
+# smooth=False is the old straight-line rendering, kept in the grid so the
+# spline's contribution is measured rather than assumed.
 RENDER_GRID = [
-    (True, 8, 32),
-    (False, 8, 32),
-    (True, 6, 32),
-    (True, 10, 40),
-    (True, 8, 16),
+    (True, 8, 32, True),
+    (True, 8, 32, False),
+    (True, 10, 40, True),
+    (True, 6, 32, True),
+    (False, 8, 32, True),
+    (True, 12, 40, True),
 ]
 
 
@@ -56,13 +59,15 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def recognize(recognizer, ink, *, deslant, stroke_width, pad, segment):
+def recognize(recognizer, ink, *, deslant, stroke_width, pad, smooth, segment):
     words = segment_words(ink) if segment else [ink]
     if not words:
         words = [ink]
     pieces = []
     for word in words:
-        image = word.render(stroke_width=stroke_width, pad=pad, deslant=deslant)
+        image = word.render(
+            stroke_width=stroke_width, pad=pad, deslant=deslant, smooth=smooth
+        )
         if image is None:
             continue
         text = recognizer.recognize(image, hint="word" if segment else "line").strip()
@@ -91,31 +96,38 @@ def main() -> None:
     # --- 1. pick the best render settings -----------------------------------
     best = None
     baseline = None
-    for deslant, width, pad in RENDER_GRID:
+    for deslant, width, pad, smooth in RENDER_GRID:
         total = 0.0
         for sample in samples:
             pred = recognize(
                 recognizer, sample.ink,
-                deslant=deslant, stroke_width=width, pad=pad, segment=args.segment,
+                deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
+                segment=args.segment,
             )
             total += cer(pred, sample.label)
         score = total / len(samples)
-        label = f"deslant={deslant} width={width} pad={pad}"
-        print(f"  CER {score:.3f}   {label}")
+        print(
+            f"  CER {score:.3f}   deslant={deslant} width={width} "
+            f"pad={pad} smooth={smooth}"
+        )
         if baseline is None:
             baseline = score
         if best is None or score < best[0]:
-            best = (score, deslant, width, pad)
+            best = (score, deslant, width, pad, smooth)
 
-    score, deslant, width, pad = best
-    print(f"\nbest: CER {score:.3f}  (deslant={deslant} width={width} pad={pad})")
+    score, deslant, width, pad, smooth = best
+    print(
+        f"\nbest: CER {score:.3f}  (deslant={deslant} width={width} "
+        f"pad={pad} smooth={smooth})"
+    )
 
     # --- 2. mine reliable whole-word fixes ----------------------------------
     misread: Dict[str, Counter] = defaultdict(Counter)
     for sample in samples:
         pred = recognize(
             recognizer, sample.ink,
-            deslant=deslant, stroke_width=width, pad=pad, segment=args.segment,
+            deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
+            segment=args.segment,
         )
         got = pred.split()
         want = sample.label.split()
@@ -134,14 +146,15 @@ def main() -> None:
 
     # --- 3. score with fixes applied ---------------------------------------
     calibration = Calibration(
-        deslant=deslant, stroke_width=width, render_pad=pad,
+        deslant=deslant, stroke_width=width, render_pad=pad, smooth=smooth,
         fixes=fixes, baseline_cer=round(baseline, 4), samples=len(samples),
     )
     total = 0.0
     for sample in samples:
         pred = recognize(
             recognizer, sample.ink,
-            deslant=deslant, stroke_width=width, pad=pad, segment=args.segment,
+            deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
+            segment=args.segment,
         )
         total += cer(calibration.apply_fixes(pred), sample.label)
     calibration.tuned_cer = round(total / len(samples), 4)

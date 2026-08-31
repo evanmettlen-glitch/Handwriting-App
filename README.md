@@ -104,6 +104,7 @@ recognition pipeline:
 --no-segment                recognize the whole line at once, not word by word
 --word-gap-ratio R          word-break gap ÷ writing height (default 0.4)
 --no-deslant                keep slanted writing as-is
+--no-smooth                 render strokes as straight lines, not splines
 --no-spellcheck             don't correct output against the English dictionary
 --spell-compound            aggressive dictionary pass; also fixes bad spacing
 
@@ -156,6 +157,22 @@ Or do both steps at once (runs on the Pi too, ~20–40 min on CPU):
 > than the stock model (measured: val CER 0.52 → 0.80). With a 5-minute
 > enrollment, use calibration below instead — it's the same idea Apple uses:
 > keep one strong general model and adapt around it rather than retraining it.
+
+### Diagnosing bad accuracy
+
+Before blaming the model, check that the touchscreen is giving you enough
+points. Tk coalesces motion events, so a quick stroke can be captured as a
+handful of widely-spaced samples:
+
+```bash
+python -m scripts.inspect_ink                 # sampling density per sample
+python -m scripts.inspect_ink --dump-png out/ # then actually look at out/*.png
+```
+
+If the median gap is more than a few pixels, strokes were being drawn as
+straight-line polygons. `Ink.render(smooth=True)` (the default) interpolates a
+Catmull-Rom spline through the captured points to restore the curves;
+`--no-smooth` turns it off for comparison.
 
 ### Measuring accuracy
 
@@ -268,7 +285,7 @@ Most USB panels need no setup. If touches don't register or land in the wrong sp
 handwriting_app/
   app.py                     Tkinter UI + threading
   canvas_widget.py           stroke capture
-  ink.py                     stroke model + rasterization + deslant
+  ink.py                     stroke model, spline smoothing, deslant, raster
   segmentation.py            group strokes into words by pen-lift gaps
   pipeline.py                segment → recognize → dictionary-correct
   postprocess.py             SymSpell English-word correction
@@ -293,6 +310,7 @@ scripts/finetune_trocr.py    fine-tune on your samples (dev machine / GPU)
 scripts/train_personal.sh    fine-tune + export in one command
 scripts/calibrate.py         no-training personalization -> calibration.json
 scripts/eval_backend.py      measure CER / accuracy on labelled samples
+scripts/inspect_ink.py       stroke-capture density diagnostics
 docs/RECOGNITION.md          research notes and roadmap
 systemd/handwriting-app.service
 tests/

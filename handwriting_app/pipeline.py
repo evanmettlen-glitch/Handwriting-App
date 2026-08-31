@@ -21,6 +21,7 @@ class PipelineConfig:
     spell_compound: bool = False
     stroke_width: int = 8
     render_pad: int = 32
+    smooth: bool = True
     personal_lexicon: Dict[str, int] = field(default_factory=dict)
     calibration: Optional[Calibration] = None
 
@@ -39,6 +40,7 @@ class RecognitionPipeline:
         self._deslant = cal.deslant if cal else config.deslant
         self._stroke_width = cal.stroke_width if cal else config.stroke_width
         self._render_pad = cal.render_pad if cal else config.render_pad
+        self._smooth = cal.smooth if cal else config.smooth
 
     @property
     def notes(self) -> List[str]:
@@ -76,6 +78,7 @@ class RecognitionPipeline:
                 stroke_width=self._stroke_width,
                 pad=self._render_pad,
                 deslant=self._deslant,
+                smooth=self._smooth,
             )
             if image is None:
                 continue

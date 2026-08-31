@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -28,6 +29,48 @@ class Stroke:
     @classmethod
     def from_list(cls, data) -> "Stroke":
         return cls([(float(x), float(y)) for x, y in data])
+
+    def smoothed(self, max_spacing: float = 3.0) -> List[Point]:
+        """Points interpolated along a Catmull-Rom spline through this stroke.
+
+        Tk coalesces motion events, so a quick stroke may be captured as only a
+        handful of widely-spaced points. Joining those with straight lines turns
+        letters into angular polygons. A Catmull-Rom spline passes through every
+        captured point while restoring the curvature between them.
+
+        Segments already denser than ``max_spacing`` are left alone.
+        """
+        pts = self.points
+        if len(pts) < 3:
+            return list(pts)
+
+        # Duplicate the endpoints so the first and last segments get drawn.
+        padded = [pts[0], *pts, pts[-1]]
+        out: List[Point] = [pts[0]]
+
+        for p0, p1, p2, p3 in zip(padded, padded[1:], padded[2:], padded[3:]):
+            span = math.dist(p1, p2)
+            steps = 1 if span <= max_spacing else min(24, int(span / max_spacing) + 1)
+            for step in range(1, steps + 1):
+                t = step / steps
+                t2, t3 = t * t, t * t * t
+                out.append(
+                    (
+                        0.5 * (
+                            2 * p1[0]
+                            + (p2[0] - p0[0]) * t
+                            + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
+                            + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
+                        ),
+                        0.5 * (
+                            2 * p1[1]
+                            + (p2[1] - p0[1]) * t
+                            + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
+                            + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
+                        ),
+                    )
+                )
+        return out
 
 
 @dataclass
@@ -87,6 +130,7 @@ class Ink:
         supersample: int = 2,
         max_width: int = 1600,
         deslant: bool = False,
+        smooth: bool = True,
     ) -> Optional[Image.Image]:
         """Rasterize the strokes as dark ink on a white background.
 
@@ -94,7 +138,10 @@ class Ink:
         the ink bounding box plus ``pad`` pixels and drawn at ``supersample``x
         then downscaled, which gives smooth anti-aliased strokes. With
         ``deslant`` the points are sheared to straighten a consistent lean
-        before rasterization (no resampling artifacts).
+        before rasterization (no resampling artifacts). With ``smooth`` each
+        stroke is interpolated along a Catmull-Rom spline first, so sparse
+        captures (Tk coalesces motion events) still render as curves rather than
+        straight-line polygons.
         """
         box = self.bounds()
         if box is None:
@@ -125,8 +172,9 @@ class Ink:
         for stroke in strokes:
             if len(stroke) == 0:
                 continue
+            source = stroke.smoothed() if smooth else stroke.points
             pts = [
-                ((px - x0 + pad) * s, (py - y0 + pad) * s) for px, py in stroke.points
+                ((px - x0 + pad) * s, (py - y0 + pad) * s) for px, py in source
             ]
             if len(pts) == 1:
                 cx, cy = pts[0]

@@ -27,6 +27,7 @@ class Calibration:
     deslant: bool = True
     stroke_width: int = 8
     render_pad: int = 32
+    smooth: bool = True
     fixes: Dict[str, str] = field(default_factory=dict)
     baseline_cer: Optional[float] = None
     tuned_cer: Optional[float] = None
@@ -38,6 +39,7 @@ class Calibration:
                 "deslant": self.deslant,
                 "stroke_width": self.stroke_width,
                 "render_pad": self.render_pad,
+                "smooth": self.smooth,
             },
             "fixes": self.fixes,
             "baseline_cer": self.baseline_cer,
@@ -52,6 +54,7 @@ class Calibration:
             deslant=bool(render.get("deslant", True)),
             stroke_width=int(render.get("stroke_width", 8)),
             render_pad=int(render.get("render_pad", 32)),
+            smooth=bool(render.get("smooth", True)),
             fixes={str(k): str(v) for k, v in (data.get("fixes") or {}).items()},
             baseline_cer=data.get("baseline_cer"),
             tuned_cer=data.get("tuned_cer"),

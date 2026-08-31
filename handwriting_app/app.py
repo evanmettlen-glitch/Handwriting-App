@@ -186,6 +186,7 @@ class HandwritingApp(tk.Tk):
                     segment=self.cfg.segment,
                     word_gap_ratio=self.cfg.word_gap_ratio,
                     deslant=self.cfg.deslant,
+                    smooth=self.cfg.smooth,
                     spellcheck=self.cfg.spellcheck,
                     spell_compound=self.cfg.spell_compound,
                     stroke_width=self.cfg.stroke_width,

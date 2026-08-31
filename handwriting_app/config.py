@@ -29,6 +29,7 @@ class AppConfig:
     segment: bool = True
     word_gap_ratio: float = 0.4
     deslant: bool = True
+    smooth: bool = True
     spellcheck: bool = True
     spell_compound: bool = False
     personal_lexicon: bool = True
@@ -138,6 +139,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not straighten slanted writing before recognition.",
     )
     p.add_argument(
+        "--no-smooth",
+        dest="smooth",
+        action="store_false",
+        help="Render strokes as straight lines instead of splines.",
+    )
+    p.add_argument(
         "--no-spellcheck",
         dest="spellcheck",
         action="store_false",
@@ -204,6 +211,7 @@ def parse_args(argv=None) -> AppConfig:
         segment=args.segment,
         word_gap_ratio=args.word_gap_ratio,
         deslant=args.deslant,
+        smooth=args.smooth,
         spellcheck=args.spellcheck,
         spell_compound=args.spell_compound,
         train=args.train,
