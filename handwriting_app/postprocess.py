@@ -7,7 +7,7 @@ installed, :class:`SpellCorrector` is a no-op and reports itself unavailable.
 from __future__ import annotations
 
 import re
-from typing import Mapping, Optional
+from typing import List, Mapping, Optional
 
 _TOKEN = re.compile(r"\S+|\s+")
 _AFFIX = re.compile(r"^(\W*)(.*?)(\W*)$", re.DOTALL)
@@ -68,6 +68,64 @@ class SpellCorrector:
     @property
     def available(self) -> bool:
         return self._sym is not None
+
+    def knows(self, word: str) -> bool:
+        """True when ``word`` is in the dictionary exactly (no fuzzy match)."""
+        if self._sym is None:
+            return False
+        return word.lower() in self._sym.words
+
+    def join_split_letters(self, text: str, max_run: int = 24) -> str:
+        """Glue runs of single letters back into words: ``a n d`` -> ``and``.
+
+        Widely-spaced printing reads to the recognizer as separate one-letter
+        words. SymSpell's compound mode mangles these (``w i t h`` -> ``a it a``),
+        so join them explicitly and only keep a join the dictionary confirms.
+        """
+        if self._sym is None or not text:
+            return text
+
+        tokens = text.split(" ")
+        out: List[str] = []
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if not (len(token) == 1 and token.isalpha()):
+                out.append(token)
+                index += 1
+                continue
+
+            # Collect the maximal run of single letters starting here.
+            end = index
+            while (
+                end < len(tokens)
+                and len(tokens[end]) == 1
+                and tokens[end].isalpha()
+                and end - index < max_run
+            ):
+                end += 1
+            run = tokens[index:end]
+
+            if len(run) < 2:
+                out.append(token)
+                index += 1
+                continue
+
+            # Greedily consume the longest prefix that forms a known word.
+            cursor = 0
+            while cursor < len(run):
+                for size in range(len(run) - cursor, 1, -1):
+                    candidate = "".join(run[cursor : cursor + size])
+                    if self.knows(candidate):
+                        out.append(_match_case(run[cursor], candidate))
+                        cursor += size
+                        break
+                else:
+                    out.append(run[cursor])
+                    cursor += 1
+            index = end
+
+        return " ".join(out)
 
     def correct_word(self, word: str) -> str:
         if self._sym is None or len(word) < 2 or not word.isalpha():

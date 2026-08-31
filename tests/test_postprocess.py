@@ -25,6 +25,68 @@ def test_corrector_fixes_typos_when_dictionary_present():
     assert corrector.correct_word("Xyzzy").istitle()
 
 
+def test_join_split_letters():
+    """Widely-spaced printing reads back as one-letter words."""
+    c = SpellCorrector()
+    if not c.available:
+        return
+    assert c.join_split_letters("a n d") == "and"
+    assert c.join_split_letters("w i t h") == "with"
+    assert c.join_split_letters("the quick b r o w n") == "the quick brown"
+    # a run may hold several words
+    assert c.join_split_letters("I a m h e r e") == "I am here"
+
+
+def test_join_split_letters_leaves_valid_text_alone():
+    c = SpellCorrector()
+    if not c.available:
+        return
+    for text in (
+        "the",
+        "you",
+        "a",
+        "I will call you later",
+        "fox , in the",
+        "the quick-",
+    ):
+        assert c.join_split_letters(text) == text
+
+
+def test_join_split_letters_keeps_unjoinable_runs():
+    c = SpellCorrector()
+    if not c.available:
+        return
+    # nothing in the run forms a word, so don't invent one
+    assert c.join_split_letters("x q z") == "x q z"
+
+
+def test_join_runs_before_correction_in_the_pipeline():
+    from handwriting_app.ink import Ink
+    from handwriting_app.pipeline import PipelineConfig, RecognitionPipeline
+    from handwriting_app.recognizer.base import Recognizer
+
+    class Fake(Recognizer):
+        name = "fake"
+
+        def recognize(self, image, *, hint="line"):
+            return "a n d"
+
+    ink = Ink()
+    stroke = ink.start_stroke()
+    for x in range(0, 40, 4):
+        stroke.add(x, 20)
+
+    joined = RecognitionPipeline(Fake(), PipelineConfig(segment=False))
+    if joined._corrector is None or not joined._corrector.available:
+        return
+    assert joined.run(ink) == "and"
+
+    off = RecognitionPipeline(
+        Fake(), PipelineConfig(segment=False, join_letters=False)
+    )
+    assert off.run(ink) != "and"
+
+
 def test_personal_lexicon_protects_own_words_but_still_fixes_typos():
     plain = SpellCorrector()
     if not plain.available:

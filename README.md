@@ -107,6 +107,7 @@ recognition pipeline:
 --no-deslant                keep slanted writing as-is
 --no-smooth                 render strokes as straight lines, not splines
 --no-spellcheck             don't correct output against the English dictionary
+--no-join-letters           don't glue "a n d" back into "and"
 --spell-compound            aggressive dictionary pass; also fixes bad spacing
 
 tesseract backend:
@@ -275,8 +276,11 @@ Most USB panels need no setup. If touches don't register or land in the wrong sp
 - **Export and use `--backend trocr`.** `tesseract` cannot read normal
   handwriting well — it was built for scanned print. Everything below matters
   much less than this.
-- Leave a clear space between words so the pen-lift segmenter can split them
-  (tune with `--word-gap-ratio`).
+- **Keep letters within a word close together.** This matters more than
+  neatness. TrOCR is trained on connected handwriting, so widely-spaced
+  printing reads back as separate one-letter words (`and` → `a n d`). The app
+  glues those back when they form a real word, but tighter letters avoid the
+  problem outright — and make word gaps unambiguous.
 - Write near the baseline guide; size and slant are handled automatically.
 - Best results come from a personal fine-tune — see
   [docs/RECOGNITION.md](docs/RECOGNITION.md), phase 2.

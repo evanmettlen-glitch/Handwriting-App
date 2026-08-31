@@ -191,6 +191,7 @@ class HandwritingApp(tk.Tk):
                     smooth=self.cfg.smooth,
                     spellcheck=self.cfg.spellcheck,
                     spell_compound=self.cfg.spell_compound,
+                    join_letters=self.cfg.join_letters,
                     stroke_width=self.cfg.stroke_width,
                     render_pad=self.cfg.render_pad,
                     personal_lexicon=lexicon,

@@ -34,6 +34,7 @@ class AppConfig:
     smooth: bool = True
     spellcheck: bool = True
     spell_compound: bool = False
+    join_letters: bool = True
     personal_lexicon: bool = True
     calibration: bool = True
     # training mode
@@ -166,6 +167,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Aggressive dictionary pass that also fixes wrong/missing spaces.",
     )
+    p.add_argument(
+        "--no-join-letters",
+        dest="join_letters",
+        action="store_false",
+        help="Don't glue runs of single letters into words ('a n d' -> 'and').",
+    )
 
     train = p.add_argument_group("training mode")
     train.add_argument(
@@ -225,6 +232,7 @@ def parse_args(argv=None) -> AppConfig:
         smooth=args.smooth,
         spellcheck=args.spellcheck,
         spell_compound=args.spell_compound,
+        join_letters=args.join_letters,
         train=args.train,
         samples_dir=samples_dir,
         prompts_file=args.prompts_file,

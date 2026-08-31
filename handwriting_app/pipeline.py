@@ -31,6 +31,7 @@ class PipelineConfig:
     deslant: bool = True
     spellcheck: bool = True
     spell_compound: bool = False
+    join_letters: bool = True
     stroke_width: int = 8
     render_pad: int = 32
     smooth: bool = True
@@ -105,6 +106,10 @@ class RecognitionPipeline:
         if self.config.calibration is not None:
             line = self.config.calibration.apply_fixes(line)
         if self._corrector is not None and self._corrector.available:
+            # Join before correcting: "a n d" must become "and" while the
+            # letters are still adjacent tokens.
+            if self.config.join_letters:
+                line = self._corrector.join_split_letters(line)
             line = self._corrector.correct_line(
                 line, compound=self.config.spell_compound
             )
