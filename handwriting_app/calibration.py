@@ -28,6 +28,7 @@ class Calibration:
     stroke_width: int = 8
     render_pad: int = 32
     smooth: bool = True
+    word_gap_ratio: float = 0.4
     fixes: Dict[str, str] = field(default_factory=dict)
     baseline_cer: Optional[float] = None
     tuned_cer: Optional[float] = None
@@ -41,6 +42,7 @@ class Calibration:
                 "render_pad": self.render_pad,
                 "smooth": self.smooth,
             },
+            "word_gap_ratio": self.word_gap_ratio,
             "fixes": self.fixes,
             "baseline_cer": self.baseline_cer,
             "tuned_cer": self.tuned_cer,
@@ -55,6 +57,7 @@ class Calibration:
             stroke_width=int(render.get("stroke_width", 8)),
             render_pad=int(render.get("render_pad", 32)),
             smooth=bool(render.get("smooth", True)),
+            word_gap_ratio=float(data.get("word_gap_ratio", 0.4)),
             fixes={str(k): str(v) for k, v in (data.get("fixes") or {}).items()},
             baseline_cer=data.get("baseline_cer"),
             tuned_cer=data.get("tuned_cer"),

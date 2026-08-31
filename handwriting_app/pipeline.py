@@ -41,6 +41,7 @@ class RecognitionPipeline:
         self._stroke_width = cal.stroke_width if cal else config.stroke_width
         self._render_pad = cal.render_pad if cal else config.render_pad
         self._smooth = cal.smooth if cal else config.smooth
+        self._word_gap_ratio = cal.word_gap_ratio if cal else config.word_gap_ratio
 
     @property
     def notes(self) -> List[str]:
@@ -64,7 +65,7 @@ class RecognitionPipeline:
             return ""
 
         words = (
-            segment_words(ink, gap_ratio=self.config.word_gap_ratio)
+            segment_words(ink, gap_ratio=self._word_gap_ratio)
             if self.config.segment
             else [ink]
         )

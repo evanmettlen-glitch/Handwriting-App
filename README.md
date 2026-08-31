@@ -169,10 +169,23 @@ python -m scripts.inspect_ink                 # sampling density per sample
 python -m scripts.inspect_ink --dump-png out/ # then actually look at out/*.png
 ```
 
-If the median gap is more than a few pixels, strokes were being drawn as
-straight-line polygons. `Ink.render(smooth=True)` (the default) interpolates a
-Catmull-Rom spline through the captured points to restore the curves;
-`--no-smooth` turns it off for comparison.
+It reports two things and names the likely culprit:
+
+- **sampling density** — if the median gap is more than a few pixels, strokes
+  were rendering as straight-line polygons. `Ink.render(smooth=True)` (the
+  default) interpolates a Catmull-Rom spline through the captured points to
+  restore the curves; `--no-smooth` turns it off for comparison.
+- **word segmentation** — it compares the number of segments found against the
+  number of words in each label. Printed handwriting has inter-letter gaps that
+  can rival inter-word gaps, so words get chopped into fragments and the model
+  is asked to read single letters as words. Find a better threshold with:
+
+```bash
+python -m scripts.inspect_ink --sweep     # then: ./run.sh --word-gap-ratio <best>
+```
+
+`scripts/calibrate.py` tunes this automatically, and it costs nothing — word
+counts need no model inference.
 
 ### Measuring accuracy
 

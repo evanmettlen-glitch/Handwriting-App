@@ -56,11 +56,52 @@ def parse_args() -> argparse.Namespace:
         help="Times a word must be misread the same way to become a fix (default: 2).",
     )
     p.add_argument("--no-segment", dest="segment", action="store_false")
+    p.add_argument(
+        "--word-gap-ratio",
+        type=float,
+        default=0.4,
+        help="Starting word-split threshold; calibration tunes it (default: 0.4).",
+    )
     return p.parse_args()
 
 
-def recognize(recognizer, ink, *, deslant, stroke_width, pad, smooth, segment):
-    words = segment_words(ink) if segment else [ink]
+GAP_RATIO_GRID = (0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.3, 1.6, 2.0)
+
+
+def tune_gap_ratio(samples, default: float) -> float:
+    """Pick the word-split threshold from label word counts alone.
+
+    No model inference needed, so this is instant — and getting it wrong hands
+    the recognizer fragments instead of words, which no amount of render tuning
+    can recover from.
+    """
+    scores = [
+        (
+            ratio,
+            sum(
+                1
+                for s in samples
+                if len(segment_words(s.ink, gap_ratio=ratio)) != len(s.label.split())
+            ),
+        )
+        for ratio in GAP_RATIO_GRID
+    ]
+    fewest = min(wrong for _, wrong in scores)
+    tied = [ratio for ratio, wrong in scores if wrong == fewest]
+    # Middle of the working range — a threshold next to a failure is fragile.
+    best = tied[len(tied) // 2]
+
+    baseline_wrong = next(w for r, w in scores if r == default)
+    print(
+        f"word segmentation: {baseline_wrong}/{len(samples)} mis-split at "
+        f"{default} -> {fewest}/{len(samples)} at {best}"
+    )
+    return best
+
+
+def recognize(recognizer, ink, *, deslant, stroke_width, pad, smooth, segment,
+              gap_ratio=0.4):
+    words = segment_words(ink, gap_ratio=gap_ratio) if segment else [ink]
     if not words:
         words = [ink]
     pieces = []
@@ -88,12 +129,19 @@ def main() -> None:
         )
     print(f"{len(samples)} samples from {args.samples}")
 
+    # --- 1. tune word segmentation (instant: no model involved) -------------
+    gap_ratio = (
+        tune_gap_ratio(samples, args.word_gap_ratio)
+        if args.segment
+        else args.word_gap_ratio
+    )
+
     recognizer = build_recognizer(
         AppConfig(backend=args.backend, model_dir=args.model_dir)
     )
     print(f"recognizer: {recognizer.name}\n")
 
-    # --- 1. pick the best render settings -----------------------------------
+    # --- 2. pick the best render settings -----------------------------------
     best = None
     baseline = None
     for deslant, width, pad, smooth in RENDER_GRID:
@@ -102,7 +150,7 @@ def main() -> None:
             pred = recognize(
                 recognizer, sample.ink,
                 deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
-                segment=args.segment,
+                segment=args.segment, gap_ratio=gap_ratio,
             )
             total += cer(pred, sample.label)
         score = total / len(samples)
@@ -121,13 +169,13 @@ def main() -> None:
         f"pad={pad} smooth={smooth})"
     )
 
-    # --- 2. mine reliable whole-word fixes ----------------------------------
+    # --- 3. mine reliable whole-word fixes ----------------------------------
     misread: Dict[str, Counter] = defaultdict(Counter)
     for sample in samples:
         pred = recognize(
             recognizer, sample.ink,
             deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
-            segment=args.segment,
+            segment=args.segment, gap_ratio=gap_ratio,
         )
         got = pred.split()
         want = sample.label.split()
@@ -144,9 +192,10 @@ def main() -> None:
     }
     print(f"{len(fixes)} reliable word fixes" + (f": {fixes}" if fixes else ""))
 
-    # --- 3. score with fixes applied ---------------------------------------
+    # --- 4. score with fixes applied ---------------------------------------
     calibration = Calibration(
         deslant=deslant, stroke_width=width, render_pad=pad, smooth=smooth,
+        word_gap_ratio=gap_ratio,
         fixes=fixes, baseline_cer=round(baseline, 4), samples=len(samples),
     )
     total = 0.0
@@ -154,7 +203,7 @@ def main() -> None:
         pred = recognize(
             recognizer, sample.ink,
             deslant=deslant, stroke_width=width, pad=pad, smooth=smooth,
-            segment=args.segment,
+            segment=args.segment, gap_ratio=gap_ratio,
         )
         total += cer(calibration.apply_fixes(pred), sample.label)
     calibration.tuned_cer = round(total / len(samples), 4)
