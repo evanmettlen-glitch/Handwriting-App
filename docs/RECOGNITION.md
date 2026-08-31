@@ -136,6 +136,7 @@ good lightweight fallback), and published IAM-OnDB BiLSTM-CTC implementations.
 - [ ] **Phase 3** — online BiLSTM-CTC model trained on IAM-OnDB; add timestamps
   to strokes; make it selectable as `--backend online`. **This is the real fix**
   for sloppy writing and cursive, and matches how Apple does it.
+  Scoped in detail: [PHASE3_SCOPE.md](PHASE3_SCOPE.md).
 - [ ] **Phase 4** — KenLM/n-gram decoding for context-aware correction.
 
 ## Datasets
