@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from handwriting_app.calibration import Calibration
 from handwriting_app.ink import Ink
 from handwriting_app.postprocess import SpellCorrector
 from handwriting_app.recognizer import Recognizer
@@ -21,6 +22,7 @@ class PipelineConfig:
     stroke_width: int = 8
     render_pad: int = 32
     personal_lexicon: Dict[str, int] = field(default_factory=dict)
+    calibration: Optional[Calibration] = None
 
 
 class RecognitionPipeline:
@@ -32,6 +34,11 @@ class RecognitionPipeline:
             if config.spellcheck
             else None
         )
+        # Calibration overrides the render settings it was measured with.
+        cal = config.calibration
+        self._deslant = cal.deslant if cal else config.deslant
+        self._stroke_width = cal.stroke_width if cal else config.stroke_width
+        self._render_pad = cal.render_pad if cal else config.render_pad
 
     @property
     def notes(self) -> List[str]:
@@ -42,6 +49,12 @@ class RecognitionPipeline:
             notes.append("dictionary correction off (pip install symspellpy)")
         elif self._corrector is not None and self._corrector.boosted:
             notes.append(f"personal lexicon: {self._corrector.boosted} words")
+        cal = self.config.calibration
+        if cal is not None:
+            note = f"calibrated on {cal.samples} samples"
+            if cal.tuned_cer is not None:
+                note += f" (CER {cal.tuned_cer:.2f})"
+            notes.append(note)
         return notes
 
     def run(self, ink: Ink) -> str:
@@ -60,9 +73,9 @@ class RecognitionPipeline:
         pieces: List[str] = []
         for word in words:
             image = word.render(
-                stroke_width=self.config.stroke_width,
-                pad=self.config.render_pad,
-                deslant=self.config.deslant,
+                stroke_width=self._stroke_width,
+                pad=self._render_pad,
+                deslant=self._deslant,
             )
             if image is None:
                 continue
@@ -71,6 +84,8 @@ class RecognitionPipeline:
                 pieces.append(text)
 
         line = " ".join(pieces)
+        if self.config.calibration is not None:
+            line = self.config.calibration.apply_fixes(line)
         if self._corrector is not None and self._corrector.available:
             line = self._corrector.correct_line(
                 line, compound=self.config.spell_compound

@@ -174,6 +174,12 @@ class HandwritingApp(tk.Tk):
 
                 # cfg.samples_dir already includes the --user subfolder, if any.
                 lexicon = dict(personal_word_counts(self.cfg.samples_dir))
+
+            calibration = None
+            if self.cfg.calibration:
+                from handwriting_app.calibration import load as load_calibration
+
+                calibration = load_calibration(self.cfg.samples_dir)
             pipeline = RecognitionPipeline(
                 recognizer,
                 PipelineConfig(
@@ -185,6 +191,7 @@ class HandwritingApp(tk.Tk):
                     stroke_width=self.cfg.stroke_width,
                     render_pad=self.cfg.render_pad,
                     personal_lexicon=lexicon,
+                    calibration=calibration,
                 ),
             )
         except RecognitionError as exc:

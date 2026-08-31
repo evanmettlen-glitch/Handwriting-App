@@ -91,6 +91,7 @@ personalization:
 --user NAME                  load models/NAME-onnx + NAME's learned word list
 --model-dir DIR             force a specific model directory
 --no-personal-lexicon       ignore words learned from collected samples
+--no-calibration            ignore data/samples/calibration.json
 
 recognition pipeline:
 --no-segment                recognize the whole line at once, not word by word
@@ -144,8 +145,22 @@ Or do both steps at once (runs on the Pi too, ~20–40 min on CPU):
 ./scripts/train_personal.sh evan       # data/samples/evan -> models/evan-onnx
 ```
 
-The encoder is frozen by default (better with a small set); pass
-`--train-encoder` to `finetune_trocr.py` if you collected a few hundred samples.
+> **Fine-tuning needs ~150–300+ samples.** On 40 it overfits and gets *worse*
+> than the stock model (measured: val CER 0.52 → 0.80). With a 5-minute
+> enrollment, use calibration below instead — it's the same idea Apple uses:
+> keep one strong general model and adapt around it rather than retraining it.
+
+### Calibration — personalization in minutes, no training
+
+```bash
+python -m scripts.calibrate
+```
+
+One forward pass over your samples. It grid-searches the render settings that
+read *your* hand best, mines words the recognizer reliably misreads for you, and
+writes `data/samples/calibration.json` — which the app loads automatically. Works
+from ~20 samples. Prints baseline vs tuned CER so you can see the gain.
+Opt out at runtime with `--no-calibration`.
 
 ### Using the learned data
 
@@ -159,6 +174,8 @@ The app picks it up on its own — no flags:
   jargon into dictionary words while still fixing real typos. The status line
   notes `personal lexicon: N words`. Works with no model training at all.
   Disable with `--no-personal-lexicon`.
+- **Calibration** — `calibration.json` overrides the render settings and applies
+  your word fixes. Status notes `calibrated on N samples`.
 
 ```bash
 ./run.sh                 # single user
@@ -241,6 +258,8 @@ handwriting_app/
   prompts.py + data/prompts.txt   freeform word list
   models.py                  auto-discover the model dir (personal > generic)
   lexicon.py                 build a personal word list from sample labels
+  calibration.py             calibration.json: render settings + word fixes
+  textalign.py               CER + character confusion alignment
   naming.py                  user-name -> safe path slug
   recognizer/
     base.py                  Recognizer interface + RecognitionError
@@ -249,6 +268,7 @@ handwriting_app/
 scripts/export_trocr_onnx.py one-time ONNX export (+ --quantize)
 scripts/finetune_trocr.py    fine-tune on your samples (dev machine / GPU)
 scripts/train_personal.sh    fine-tune + export in one command
+scripts/calibrate.py         no-training personalization -> calibration.json
 docs/RECOGNITION.md          research notes and roadmap
 systemd/handwriting-app.service
 tests/

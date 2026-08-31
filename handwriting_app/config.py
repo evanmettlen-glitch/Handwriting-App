@@ -32,6 +32,7 @@ class AppConfig:
     spellcheck: bool = True
     spell_compound: bool = False
     personal_lexicon: bool = True
+    calibration: bool = True
     # training mode
     train: bool = False
     samples_dir: str = "data/samples"
@@ -82,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
         dest="personal_lexicon",
         action="store_false",
         help="Ignore words learned from collected samples.",
+    )
+    p.add_argument(
+        "--no-calibration",
+        dest="calibration",
+        action="store_false",
+        help="Ignore data/samples/calibration.json (see scripts/calibrate.py).",
     )
     p.add_argument("--fullscreen", action="store_true", help="Start in fullscreen kiosk mode.")
     p.add_argument(
@@ -185,6 +192,7 @@ def parse_args(argv=None) -> AppConfig:
         model_dir=args.model_dir,
         user=args.user,
         personal_lexicon=args.personal_lexicon,
+        calibration=args.calibration,
         fullscreen=args.fullscreen,
         auto_recognize=args.auto_recognize,
         auto_delay_ms=args.auto_delay,
