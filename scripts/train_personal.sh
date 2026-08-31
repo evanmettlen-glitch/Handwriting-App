@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-NAME="${1:-personal}"
+NAME="${1:-trocr-personal}"
 SAMPLES="${2:-data/samples/$NAME}"
 [ -d "$SAMPLES" ] || SAMPLES="data/samples"
 
@@ -26,7 +26,7 @@ echo "==> Output:   models/$NAME  ->  models/$NAME-onnx"
     --model "models/$NAME" --out "models/$NAME-onnx" --quantize
 
 echo
-if [ "$NAME" = "personal" ]; then
+if [ "$NAME" = "trocr-personal" ]; then
     echo "Done. The app now picks this up automatically:  ./run.sh"
 else
     echo "Done. Use it:  ./run.sh --user $NAME"

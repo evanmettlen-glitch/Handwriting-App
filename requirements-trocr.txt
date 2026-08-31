@@ -3,3 +3,4 @@
 optimum[onnxruntime]>=1.17
 transformers>=4.36
 torch>=2.2
+sentencepiece>=0.1.99

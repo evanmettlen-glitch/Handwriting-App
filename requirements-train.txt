@@ -3,4 +3,5 @@
 # recommended (CPU training works but is slow).
 torch>=2.2
 transformers>=4.36
+sentencepiece>=0.1.99
 pillow>=10.0
