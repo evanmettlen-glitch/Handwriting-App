@@ -105,6 +105,7 @@ finger/stylus → USB touch panel → Tk pointer events
 ```bash
 python -m scripts.inspect_ink --sweep    # capture + segmentation diagnostics (fast)
 python -m scripts.eval_backend           # CER / accuracy (the number to beat)
+python -m scripts.bench_latency          # where the seconds go; speed vs CER sweep
 python -m scripts.calibrate              # tune render settings, no training (~45 min)
 python -m scripts.finetune_trocr         # fine-tune (needs 150-300+ samples)
 ./scripts/train_personal.sh [name]       # fine-tune + ONNX export in one go
@@ -151,6 +152,33 @@ word gaps unambiguous, which fixes segmentation as a side effect.
 | **Word segmentation threshold** | Sweep plateaus at 21/43 wrong for *every* ratio 0.5–2.0. No threshold exists, because letter gaps ≈ word gaps. |
 | **Fine-tuning TrOCR on the enrollment set** | Measured: val CER **0.52 → 0.80** on 40 samples. It memorizes and generalizes worse. Needs 150–300+. |
 | **SymSpell compound mode for split letters** | Measured: `w i t h` → `a it a`, `a n d` → `an a`. Makes it worse. |
+
+### Latency (the open problem as of 2026-08-31)
+
+Accuracy is now acceptable; **time to result is the complaint**. The whole cost
+is TrOCR-base on a CPU — render, segmentation, and spell correction are
+sub-millisecond. Measure with `python -m scripts.bench_latency`, which reports
+throttle state, a per-stage breakdown, and a speed-vs-CER sweep.
+
+Shipped, no accuracy risk:
+
+- **Startup warm-up.** The first inference used to cost ~30 s of lazy init on
+  the user's first real line. `Recognizer.warmup()` now runs a throwaway pass
+  during load, before the Recognize button enables.
+- **A counting-up status line** (`Recognizing…  2.4s`) and elapsed time on the
+  result, so a slow run reads as slow rather than hung.
+
+Knobs, biggest lever first — all measurable with the bench:
+
+| Flag | Effect | Risk |
+|---|---|---|
+| `--model-dir microsoft/trocr-small-handwritten` | ~5x less compute | real accuracy risk |
+| `--quantize` | ~2x faster (dynamic int8) | some accuracy |
+| `--beams 1` | ~4x less decode — **now the default** | negligible |
+
+`--beams 1` is the one free win: the `microsoft/trocr-*` checkpoints ship
+`num_beams=4` in their generation config, so every recognition was running beam
+search four ways over 577 encoder patches by default.
 
 ### Segmentation is off for TrOCR on purpose
 
@@ -210,9 +238,10 @@ progress bar, timer, and live a-z/A-Z/0-9 coverage. Designed for under 5 minutes
 ## What to do next
 
 **Immediate (minutes):**
-1. Re-measure with letter-joining active:
+1. `python -m scripts.bench_latency` — pick the fastest row whose CER matches
+   the `beams=1 / int8=off` baseline, then run the app with those flags.
+2. Re-measure accuracy with letter-joining active:
    `python -m scripts.eval_backend --limit 12`
-2. Write a line with **tight letter spacing** in the app and compare.
 3. If improved, re-run `python -m scripts.calibrate` (~45 min) to re-tune with
    the new segmentation default and bake it into `calibration.json`.
 

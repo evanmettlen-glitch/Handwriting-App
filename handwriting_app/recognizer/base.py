@@ -23,5 +23,12 @@ class Recognizer(abc.ABC):
         segmentation (e.g. tesseract's page-segmentation mode).
         """
 
+    def warmup(self) -> float:  # pragma: no cover - optional hook
+        """Do any first-call work now, while the UI still says "loading".
+
+        Returns the seconds spent. Backends with no lazy setup return 0.
+        """
+        return 0.0
+
     def close(self) -> None:  # pragma: no cover - optional hook
         pass

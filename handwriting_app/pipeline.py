@@ -75,6 +75,33 @@ class RecognitionPipeline:
         notes.append("word-by-word" if self.segment else "whole line")
         return notes
 
+    def render(self, ink: Ink):
+        """Rasterize ink exactly as :meth:`run` would.
+
+        Tooling (benchmarks, calibration, inspection) needs the same image the
+        recognizer will actually see, calibration overrides included.
+        """
+        return ink.render(
+            stroke_width=self._stroke_width,
+            pad=self._render_pad,
+            deslant=self._deslant,
+            smooth=self._smooth,
+        )
+
+    def postprocess(self, line: str) -> str:
+        """Fixes, letter-joining, and dictionary correction applied to raw text."""
+        if self.config.calibration is not None:
+            line = self.config.calibration.apply_fixes(line)
+        if self._corrector is not None and self._corrector.available:
+            # Join before correcting: "a n d" must become "and" while the
+            # letters are still adjacent tokens.
+            if self.config.join_letters:
+                line = self._corrector.join_split_letters(line)
+            line = self._corrector.correct_line(
+                line, compound=self.config.spell_compound
+            )
+        return line
+
     def run(self, ink: Ink) -> str:
         if ink.is_empty:
             return ""
@@ -90,27 +117,11 @@ class RecognitionPipeline:
 
         pieces: List[str] = []
         for word in words:
-            image = word.render(
-                stroke_width=self._stroke_width,
-                pad=self._render_pad,
-                deslant=self._deslant,
-                smooth=self._smooth,
-            )
+            image = self.render(word)
             if image is None:
                 continue
             text = self.recognizer.recognize(image, hint=hint).strip()
             if text:
                 pieces.append(text)
 
-        line = " ".join(pieces)
-        if self.config.calibration is not None:
-            line = self.config.calibration.apply_fixes(line)
-        if self._corrector is not None and self._corrector.available:
-            # Join before correcting: "a n d" must become "and" while the
-            # letters are still adjacent tokens.
-            if self.config.join_letters:
-                line = self._corrector.join_split_letters(line)
-            line = self._corrector.correct_line(
-                line, compound=self.config.spell_compound
-            )
-        return line
+        return self.postprocess(" ".join(pieces))

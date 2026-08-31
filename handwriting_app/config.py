@@ -18,6 +18,10 @@ class AppConfig:
     whitelist: str = ""
     model_dir: str = ""  # "" -> auto-discover (see handwriting_app/models.py)
     user: str = ""
+    # TrOCR speed knobs. See scripts/bench_latency.py for the tradeoffs.
+    beams: int = 1  # 1 = greedy; the checkpoints ship 4, which costs ~4x decode
+    quantize: bool = False  # dynamic int8: ~2x faster, some accuracy cost
+    max_new_tokens: int = 48
     fullscreen: bool = False
     auto_recognize: bool = True
     auto_delay_ms: int = 1800
@@ -83,6 +87,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--user",
         default=AppConfig.user,
         help="Person to personalize for: loads models/<user>-onnx and their word list.",
+    )
+
+    speed = p.add_argument_group("recognition speed (TrOCR)")
+    speed.add_argument(
+        "--beams",
+        type=int,
+        default=AppConfig.beams,
+        help="Beam width. 1 (default) is greedy and ~4x faster than the 4 the "
+        "TrOCR checkpoints ship with.",
+    )
+    speed.add_argument(
+        "--quantize",
+        action="store_true",
+        help="Load the model as dynamic int8. Roughly halves recognition time; "
+        "measure the accuracy cost with scripts/bench_latency.py first.",
+    )
+    speed.add_argument(
+        "--max-tokens",
+        type=int,
+        default=AppConfig.max_new_tokens,
+        metavar="N",
+        help="Cap on generated characters per line (default: 48).",
     )
     p.add_argument(
         "--no-personal-lexicon",
@@ -218,6 +244,9 @@ def parse_args(argv=None) -> AppConfig:
         whitelist=args.whitelist,
         model_dir=args.model_dir,
         user=args.user,
+        beams=args.beams,
+        quantize=args.quantize,
+        max_new_tokens=args.max_tokens,
         personal_lexicon=args.personal_lexicon,
         calibration=args.calibration,
         fullscreen=args.fullscreen,

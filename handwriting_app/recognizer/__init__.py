@@ -70,6 +70,11 @@ def build_recognizer(config: AppConfig) -> Recognizer:
 
         from .trocr_torch_recognizer import TrocrTorchRecognizer
 
-        return TrocrTorchRecognizer(model_dir=model_ref)
+        return TrocrTorchRecognizer(
+            model_dir=model_ref,
+            max_new_tokens=config.max_new_tokens,
+            num_beams=config.beams,
+            quantize=config.quantize,
+        )
 
     raise RecognitionError(f"Unknown backend: {backend!r}")

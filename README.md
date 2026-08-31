@@ -110,6 +110,12 @@ recognition pipeline:
 --no-join-letters           don't glue "a n d" back into "and"
 --spell-compound            aggressive dictionary pass; also fixes bad spacing
 
+recognition speed (TrOCR — see "Making it faster"):
+--beams N                   beam width (default 1 = greedy; the checkpoints
+                            ship 4, which costs ~4x the decode time)
+--quantize                  load the model as dynamic int8, ~2x faster
+--max-tokens N              cap on characters generated per line (default 48)
+
 tesseract backend:
 --lang eng+deu              languages (needs tesseract-ocr-deu, etc.)
 --psm N                     line segmentation (7 = one line, 13 = raw line)
@@ -207,6 +213,36 @@ neatly you wrote it. A single rote sample can drag an aggregate score from 0.05
 to 0.75 — judge the model on the natural-language number.
 
 Use this to check whether a change actually helped before keeping it.
+
+### Making it faster
+
+TrOCR-base on a Pi 5 CPU is the whole cost — everything else in the pipeline is
+sub-millisecond. Measure before turning knobs:
+
+```bash
+python -m scripts.bench_latency
+```
+
+It prints the throttle/temperature state first (a throttled Pi looks exactly
+like slow code, and no code change fixes that), then a per-stage breakdown —
+render, preprocess, vision encoder, decode, postprocess — then a sweep of
+median seconds *and* CER for each speed setting. Speed is only worth having if
+the accuracy column holds, so the two are always reported together.
+
+The three levers, biggest first:
+
+| Lever | Effect | Cost |
+|---|---|---|
+| `--model-dir microsoft/trocr-small-handwritten` | ~5x less compute | most accuracy risk — measure it |
+| `--quantize` (dynamic int8) | ~2x faster | some accuracy, no re-export needed |
+| `--beams 1` (**already the default**) | ~4x less decode | negligible; the checkpoints ship `num_beams=4` |
+
+The **first** recognition used to take ~30 s because the model initializes
+lazily. That cost is now paid at startup — the status line says
+`Warming up the model` and the **Recognize** button stays disabled until it's
+done, so every recognition the user actually makes runs at steady-state speed.
+While one is running the status line counts up (`Recognizing…  2.4s`) and the
+result reports what it took.
 
 ### Calibration — personalization in minutes, no training
 

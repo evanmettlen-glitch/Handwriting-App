@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import time
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
 from tkinter import font as tkfont
@@ -34,6 +35,10 @@ class HandwritingApp(tk.Tk):
         self._busy = False
         self._pending_auto: Optional[str] = None
         self._clear_pending = False
+        # Recognition takes seconds on a Pi, so the status line counts up
+        # rather than sitting on a static "Recognizing…" that looks hung.
+        self._recognize_started: Optional[float] = None
+        self._tick_job: Optional[str] = None
 
         self._build_fonts()
         self._build_ui()
@@ -204,8 +209,17 @@ class HandwritingApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001
             self._results.put(("fatal", f"{type(exc).__name__}: {exc}"))
             return
+
+        # Pay the first-inference cost (lazy allocation, thread pool spin-up,
+        # kernel selection) here rather than on the user's first real line.
+        notes = list(pipeline.notes)
+        self._results.put(("status", "Warming up the model — first run only…"))
+        warm = recognizer.warmup()
+        if warm > 0.5:
+            notes.append(f"warmed up in {warm:.0f}s")
+
         self._pipeline = pipeline
-        note = f" ({'; '.join(pipeline.notes)})" if pipeline.notes else ""
+        note = f" ({'; '.join(notes)})" if notes else ""
         self._results.put(("ready", recognizer.name + note))
 
     # -- recognition -----------------------------------------------------
@@ -231,8 +245,28 @@ class HandwritingApp(tk.Tk):
             return
 
         self._busy = True
-        self._set_status("Recognizing…")
+        self._recognize_started = time.perf_counter()
+        self._tick_elapsed()
         self._pool.submit(self._recognize_worker, pipeline, ink)
+
+    def _tick_elapsed(self) -> None:
+        """Count up in the status line for as long as the worker is busy."""
+        self._tick_job = None
+        if not self._busy or self._recognize_started is None:
+            return
+        elapsed = time.perf_counter() - self._recognize_started
+        self._set_status(f"Recognizing…  {elapsed:.1f}s")
+        self._tick_job = self.after(200, self._tick_elapsed)
+
+    def _stop_ticking(self) -> float:
+        if self._tick_job is not None:
+            self.after_cancel(self._tick_job)
+            self._tick_job = None
+        if self._recognize_started is None:
+            return 0.0
+        elapsed = time.perf_counter() - self._recognize_started
+        self._recognize_started = None
+        return elapsed
 
     def _recognize_worker(self, pipeline: RecognitionPipeline, ink: Ink) -> None:
         try:
@@ -257,20 +291,24 @@ class HandwritingApp(tk.Tk):
         if kind == "ready":
             self.btn_recognize.config(state="normal")
             self._set_status(f"Ready · backend: {payload}")
+        elif kind == "status":
+            self._set_status(payload)
         elif kind == "fatal":
             self._set_status("Backend failed to load")
             self.output.insert("end", f"[backend error]\n{payload}\n")
         elif kind == "result":
             self._busy = False
-            self._append_recognized(payload.strip())
+            self._append_recognized(payload.strip(), self._stop_ticking())
         elif kind == "error":
             self._busy = False
+            self._stop_ticking()
             self._set_status(f"Recognition error: {payload}")
 
     # -- output box helpers ------------------------------------------
-    def _append_recognized(self, text: str) -> None:
+    def _append_recognized(self, text: str, seconds: float = 0.0) -> None:
+        took = f" in {seconds:.1f}s" if seconds else ""
         if not text:
-            self._set_status("No text recognized — try writing larger")
+            self._set_status(f"No text recognized{took} — try writing larger")
             return
         current = self.output.get("1.0", "end-1c")
         separator = (
@@ -284,9 +322,9 @@ class HandwritingApp(tk.Tk):
             # Leave the ink on screen so the result can be checked against it;
             # wipe it only when the user starts writing the next thing.
             self._clear_pending = True
-            self._set_status(f"Added: {text!r} — start writing to continue")
+            self._set_status(f"Added{took}: {text!r} — start writing to continue")
         else:
-            self._set_status(f"Added: {text!r}")
+            self._set_status(f"Added{took}: {text!r}")
 
     def _edit_output(self, text: str) -> None:
         self.output.insert("end", text)
