@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import string
 from dataclasses import dataclass
-from typing import Dict, Iterable, List
+from typing import Iterable, List
 
 ENROLLMENT_PROMPTS: List[str] = [
     # rote alphabet — fast, full a-z / A-Z coverage

@@ -36,6 +36,8 @@ class SpellCorrector:
         self._sym = None
         self._verbosity = None
         self.boosted = 0
+        self._personal: set[str] = set()
+        self._by_prefix: Optional[dict] = None
         try:
             import importlib.resources as resources
 
@@ -63,6 +65,7 @@ class SpellCorrector:
             if len(term) < 2 or not term.replace("'", "").isalpha():
                 continue
             sym.create_dictionary_entry(term, max(1, times) * _PERSONAL_WEIGHT)
+            self._personal.add(term)
             self.boosted += 1
 
     @property
@@ -126,6 +129,54 @@ class SpellCorrector:
             index = end
 
         return " ".join(out)
+
+    def complete(self, prefix: str, min_prefix: int = 2) -> str:
+        """The likeliest whole word starting with ``prefix``, or ``""``.
+
+        Used to guess where a half-decoded word is going, so the live preview
+        reads as words rather than fragments.
+
+        SymSpell indexes by edit distance, not by prefix, so this keeps its own
+        two-letter bucket index — built once on first use, then a few hundred
+        comparisons instead of eighty thousand. It runs once per generated
+        token on the UI thread, and a Pi has better things to do between
+        decoder steps.
+
+        Your own vocabulary is preferred outright rather than by count: the
+        personal boost is large but the English frequency dictionary runs to
+        billions, so a common word would otherwise still outrank a name you
+        actually write. Never used to change the committed text: a guess is a
+        guess.
+        """
+        if self._sym is None or len(prefix) < min_prefix or not prefix.isalpha():
+            return ""
+        lower = prefix.lower()
+
+        def pick(words) -> str:
+            best, best_count = "", -1
+            for word in words:
+                count = self._sym.words.get(word, 0)
+                if count > best_count and len(word) > len(lower) and word.startswith(lower):
+                    best, best_count = word, count
+            return best
+
+        best = pick(self._personal) or pick(self._bucket(lower[:2]))
+        return _match_case(prefix, best) if best else ""
+
+    def _bucket(self, key: str) -> tuple:
+        """Dictionary words starting with ``key``, indexed on first use.
+
+        Only words longer than the key can ever be a completion, so the index
+        skips the rest. Built lazily: a session that never shows a preview
+        never pays for it.
+        """
+        if self._by_prefix is None:
+            index: dict = {}
+            for word in self._sym.words:
+                if len(word) > 2:
+                    index.setdefault(word[:2], []).append(word)
+            self._by_prefix = {k: tuple(v) for k, v in index.items()}
+        return self._by_prefix.get(key, ())
 
     def correct_word(self, word: str) -> str:
         if self._sym is None or len(word) < 2 or not word.isalpha():

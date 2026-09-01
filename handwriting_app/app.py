@@ -29,7 +29,9 @@ class HandwritingApp(tk.Tk):
         self.geometry("1024x600")
         self.minsize(800, 480)
 
-        self._results: "queue.Queue[tuple[str, str]]" = queue.Queue()
+        # Payload is a str for every kind except "result", which carries
+        # (text, cleanup note).
+        self._results: "queue.Queue[tuple[str, object]]" = queue.Queue()
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="recognizer")
         self._pipeline: Optional[RecognitionPipeline] = None
         self._busy = False
@@ -39,6 +41,10 @@ class HandwritingApp(tk.Tk):
         # rather than sitting on a static "Recognizing…" that looks hung.
         self._recognize_started: Optional[float] = None
         self._tick_job: Optional[str] = None
+        # Text decoded so far on the current run. The decoder produces a token
+        # at a time, so showing it as it lands turns a dead wait into progress.
+        self._partial = ""
+        self._preview_chars = 52
 
         self._build_fonts()
         self._build_ui()
@@ -94,9 +100,20 @@ class HandwritingApp(tk.Tk):
         self.btn_recognize = self._mk_button(panel, "Recognize", self._recognize_now, bg="#2d6cdf")
         self.btn_recognize.config(state="disabled")
 
+        # Undo and Clear pad share one row: the panel is sized for a 1024x600
+        # kiosk screen and has no spare vertical space for a ninth button.
+        pad_row = tk.Frame(panel, bg=_BG)
+        for label, command in (
+            ("↶  Undo", self._undo),
+            ("Clear pad", self._clear_pad),
+        ):
+            self._mk_button(pad_row, label, command).pack(
+                side="left", fill="x", expand=True, padx=(0, 4)
+            )
+
         buttons = [
             self.btn_recognize,
-            self._mk_button(panel, "Clear pad", self._clear_pad),
+            pad_row,
             self._mk_button(panel, "Space", lambda: self._edit_output(" ")),
             self._mk_button(panel, "⌫  Back", self._backspace),
             self._mk_button(panel, "↵  Newline", lambda: self._edit_output("\n")),
@@ -150,6 +167,7 @@ class HandwritingApp(tk.Tk):
         self.bind("<Escape>", lambda _e: self._set_fullscreen(False))
         self.bind("<Control-Return>", lambda _e: self._recognize_now())
         self.bind("<Control-l>", lambda _e: self._clear_pad())
+        self.bind("<Control-z>", lambda _e: self._undo())
         self.bind("<Control-q>", lambda _e: self._on_close())
 
     # -- fullscreen helpers ------------------------------------------------
@@ -192,6 +210,8 @@ class HandwritingApp(tk.Tk):
                 PipelineConfig(
                     segment=resolve_segment(self.cfg.segment, recognizer.name),
                     word_gap_ratio=self.cfg.word_gap_ratio,
+                    cleanup=self.cfg.cleanup,
+                    predict=self.cfg.predict,
                     deslant=self.cfg.deslant,
                     smooth=self.cfg.smooth,
                     spellcheck=self.cfg.spellcheck,
@@ -245,6 +265,7 @@ class HandwritingApp(tk.Tk):
             return
 
         self._busy = True
+        self._partial = ""
         self._recognize_started = time.perf_counter()
         self._tick_elapsed()
         self._pool.submit(self._recognize_worker, pipeline, ink)
@@ -255,8 +276,17 @@ class HandwritingApp(tk.Tk):
         if not self._busy or self._recognize_started is None:
             return
         elapsed = time.perf_counter() - self._recognize_started
-        self._set_status(f"Recognizing…  {elapsed:.1f}s")
+        self._set_status(f"Recognizing…  {elapsed:.1f}s{self._preview()}")
         self._tick_job = self.after(200, self._tick_elapsed)
+
+    def _preview(self) -> str:
+        """The decoded-so-far text, tail-trimmed to fit one status line."""
+        if not self._partial:
+            return ""
+        text = self._partial
+        if len(text) > self._preview_chars:
+            text = "…" + text[-self._preview_chars :]
+        return f"   ▸ {text}"
 
     def _stop_ticking(self) -> float:
         if self._tick_job is not None:
@@ -270,12 +300,18 @@ class HandwritingApp(tk.Tk):
 
     def _recognize_worker(self, pipeline: RecognitionPipeline, ink: Ink) -> None:
         try:
-            text = pipeline.run(ink)
-            self._results.put(("result", text))
+            text = pipeline.run(ink, on_partial=self._on_partial)
+            report = pipeline.last_cleanup
+            note = report.summary() if report is not None and report.changed else ""
+            self._results.put(("result", (text, note)))
         except RecognitionError as exc:
             self._results.put(("error", str(exc)))
         except Exception as exc:  # noqa: BLE001 - never let the worker die silently
             self._results.put(("error", f"{type(exc).__name__}: {exc}"))
+
+    def _on_partial(self, text: str) -> None:
+        """Called from the worker thread for each token the decoder emits."""
+        self._results.put(("partial", text))
 
     # -- result pump ---------------------------------------------------
     def _poll_results(self) -> None:
@@ -287,28 +323,42 @@ class HandwritingApp(tk.Tk):
             pass
         self.after(100, self._poll_results)
 
-    def _handle_result(self, kind: str, payload: str) -> None:
+    def _handle_result(self, kind: str, payload: object) -> None:
         if kind == "ready":
             self.btn_recognize.config(state="normal")
             self._set_status(f"Ready · backend: {payload}")
         elif kind == "status":
             self._set_status(payload)
+        elif kind == "partial":
+            # The ticker redraws the status line every 200ms; just hand it the
+            # newest text rather than fighting it for the widget. The guess at
+            # the trailing word is scanned here, on the idle UI thread, rather
+            # than in the callback — that one runs between decoder steps.
+            text = str(payload)
+            guess = self._pipeline.predict(text) if self._pipeline else ""
+            self._partial = f"{text}({guess})" if guess else text
         elif kind == "fatal":
             self._set_status("Backend failed to load")
             self.output.insert("end", f"[backend error]\n{payload}\n")
         elif kind == "result":
             self._busy = False
-            self._append_recognized(payload.strip(), self._stop_ticking())
+            text, note = payload
+            self._partial = ""
+            self._append_recognized(text.strip(), self._stop_ticking(), note)
         elif kind == "error":
             self._busy = False
             self._stop_ticking()
             self._set_status(f"Recognition error: {payload}")
 
     # -- output box helpers ------------------------------------------
-    def _append_recognized(self, text: str, seconds: float = 0.0) -> None:
+    def _append_recognized(
+        self, text: str, seconds: float = 0.0, cleanup: str = ""
+    ) -> None:
         took = f" in {seconds:.1f}s" if seconds else ""
+        # Cleanup deletes ink the user can still see on the pad, so say so.
+        tidied = f" · {cleanup}" if cleanup else ""
         if not text:
-            self._set_status(f"No text recognized{took} — try writing larger")
+            self._set_status(f"No text recognized{took} — try writing larger{tidied}")
             return
         current = self.output.get("1.0", "end-1c")
         separator = (
@@ -322,9 +372,11 @@ class HandwritingApp(tk.Tk):
             # Leave the ink on screen so the result can be checked against it;
             # wipe it only when the user starts writing the next thing.
             self._clear_pending = True
-            self._set_status(f"Added{took}: {text!r} — start writing to continue")
+            self._set_status(
+                f"Added{took}: {text!r}{tidied} — start writing to continue"
+            )
         else:
-            self._set_status(f"Added{took}: {text!r}")
+            self._set_status(f"Added{took}: {text!r}{tidied}")
 
     def _edit_output(self, text: str) -> None:
         self.output.insert("end", text)
@@ -334,7 +386,28 @@ class HandwritingApp(tk.Tk):
         if self.output.compare("end-1c", ">", "1.0"):
             self.output.delete("end-2c", "end-1c")
 
+    def _undo(self) -> None:
+        """Drop the last stroke.
+
+        On a touchscreen one stray mark otherwise costs the whole pad — ink
+        cleanup catches the drags it can recognize, and this is the manual
+        version for everything else.
+        """
+        if self._clear_pending:
+            # That ink has already been turned into text. Undoing into it would
+            # leave a fragment of a finished line to be recognized again.
+            self._clear_pad()
+            self._set_status("Pad cleared")
+            return
+        self._cancel_pending_auto()
+        if not self.canvas.undo_last_stroke():
+            self._set_status("Nothing to undo")
+            return
+        self._set_status("Undid the last stroke")
+        self._arm_auto_recognize()
+
     def _clear_pad(self) -> None:
+        self._cancel_pending_auto()
         self._clear_pending = False
         self.canvas.clear()
 
@@ -353,19 +426,26 @@ class HandwritingApp(tk.Tk):
         self.status.config(text=message)
 
     # -- stroke callbacks (auto-recognize) -------------------------
-    def _on_stroke_start(self) -> None:
-        if self._clear_pending:
-            self.canvas.clear()
-            self._clear_pending = False
+    def _cancel_pending_auto(self) -> None:
         if self._pending_auto is not None:
             self.after_cancel(self._pending_auto)
             self._pending_auto = None
 
-    def _on_stroke_end(self) -> None:
-        if self.auto_var.get():
+    def _arm_auto_recognize(self) -> None:
+        """Start the idle countdown, unless there is nothing left to read."""
+        if self.auto_var.get() and not self.canvas.ink.is_empty:
             self._pending_auto = self.after(
                 self.cfg.auto_delay_ms, lambda: self._recognize_now(auto=True)
             )
+
+    def _on_stroke_start(self) -> None:
+        if self._clear_pending:
+            self.canvas.clear()
+            self._clear_pending = False
+        self._cancel_pending_auto()
+
+    def _on_stroke_end(self) -> None:
+        self._arm_auto_recognize()
 
     # -- shutdown -----------------------------------------------------
     def _on_close(self) -> None:
@@ -373,6 +453,13 @@ class HandwritingApp(tk.Tk):
             self._pool.shutdown(wait=False, cancel_futures=True)
         except TypeError:  # pragma: no cover - Python < 3.9
             self._pool.shutdown(wait=False)
+        if self._pipeline is not None:
+            # The ONNX backend holds runtime sessions; the torch one has nothing
+            # to release. Either way, closing is the recognizer's business.
+            try:
+                self._pipeline.recognizer.close()
+            except Exception:  # noqa: BLE001 - never block quitting
+                pass
         self.destroy()
 
 

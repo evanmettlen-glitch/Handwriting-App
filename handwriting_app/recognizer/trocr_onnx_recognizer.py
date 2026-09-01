@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import glob
 import os
+from typing import Callable, Optional
 
 from PIL import Image
 
@@ -85,7 +86,14 @@ class TrocrOnnxRecognizer(Recognizer):
         except Exception:  # noqa: BLE001
             return None
 
-    def recognize(self, image: Image.Image, *, hint: str = "line") -> str:
+    def recognize(
+        self,
+        image: Image.Image,
+        *,
+        hint: str = "line",
+        on_partial: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        # the exported graph has no streaming hook, so there is nothing to stream.
         try:
             pixel_values = self._processor(
                 images=image.convert("RGB"), return_tensors="pt"

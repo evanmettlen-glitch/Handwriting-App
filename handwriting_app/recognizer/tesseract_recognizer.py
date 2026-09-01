@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import shutil
 import subprocess
+from typing import Callable, Optional
 
 from PIL import Image, ImageOps
 
@@ -56,7 +57,14 @@ class TesseractRecognizer(Recognizer):
         binarized = gray.point(lambda p: 0 if p < 175 else 255)
         return ImageOps.expand(binarized, border=28, fill=255)
 
-    def recognize(self, image: Image.Image, *, hint: str = "line") -> str:
+    def recognize(
+        self,
+        image: Image.Image,
+        *,
+        hint: str = "line",
+        on_partial: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        # tesseract returns the whole line at once, so there is nothing to stream.
         gray = self._preprocess(image)
         psm = 8 if hint == "word" else self.psm  # 8 = treat image as a single word
         args = [

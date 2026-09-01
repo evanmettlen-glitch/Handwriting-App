@@ -22,6 +22,7 @@ class AppConfig:
     beams: int = 1  # 1 = greedy; the checkpoints ship 4, which costs ~4x decode
     quantize: bool = False  # dynamic int8: ~2x faster, some accuracy cost
     max_new_tokens: int = 48
+    image_size: int = 0  # 0 = the checkpoint's native 384x384
     fullscreen: bool = False
     auto_recognize: bool = True
     auto_delay_ms: int = 1800
@@ -34,6 +35,8 @@ class AppConfig:
     # models (TrOCR), on for tesseract. See pipeline.resolve_segment().
     segment: Optional[bool] = None
     word_gap_ratio: float = 0.4
+    cleanup: bool = True
+    predict: bool = True
     deslant: bool = True
     smooth: bool = True
     spellcheck: bool = True
@@ -104,6 +107,15 @@ def build_parser() -> argparse.ArgumentParser:
         "measure the accuracy cost with scripts/bench_latency.py first.",
     )
     speed.add_argument(
+        "--image-size",
+        type=int,
+        default=AppConfig.image_size,
+        metavar="PX",
+        help="Run the vision encoder at PX by PX instead of the checkpoint's "
+        "384. Cost is set by the patch count, so 224 is about a third of the "
+        "work — measure the accuracy with scripts/bench_latency.py first.",
+    )
+    speed.add_argument(
         "--max-tokens",
         type=int,
         default=AppConfig.max_new_tokens,
@@ -169,6 +181,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=AppConfig.word_gap_ratio,
         help="Word-break gap as a fraction of writing height (default: 0.4).",
+    )
+    p.add_argument(
+        "--no-cleanup",
+        dest="cleanup",
+        action="store_false",
+        help="Keep every captured mark. By default accidental drags, the slide "
+        "between words when the pen never lifts, and stray taps are removed.",
+    )
+    p.add_argument(
+        "--no-predict",
+        dest="predict",
+        action="store_false",
+        help="Don't guess the rest of the word being decoded in the live "
+        "preview. Display only either way — it never changes the output.",
     )
     p.add_argument(
         "--no-deslant",
@@ -247,6 +273,7 @@ def parse_args(argv=None) -> AppConfig:
         beams=args.beams,
         quantize=args.quantize,
         max_new_tokens=args.max_tokens,
+        image_size=args.image_size,
         personal_lexicon=args.personal_lexicon,
         calibration=args.calibration,
         fullscreen=args.fullscreen,
@@ -257,6 +284,8 @@ def parse_args(argv=None) -> AppConfig:
         clear_after_recognize=args.clear_after_recognize,
         segment=args.segment,
         word_gap_ratio=args.word_gap_ratio,
+        cleanup=args.cleanup,
+        predict=args.predict,
         deslant=args.deslant,
         smooth=args.smooth,
         spellcheck=args.spellcheck,

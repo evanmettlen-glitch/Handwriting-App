@@ -133,6 +133,10 @@ def main() -> None:
         f"mis-segmented    {seg_wrong}/{len(samples)} at --gap-ratio "
         f"{args.gap_ratio}  ({split} over-split, {merged} merged)"
     )
+    print(
+        "                 (raw strokes — the app segments *after* ink cleanup;\n"
+        "                  see python -m scripts.inspect_cleanup)"
+    )
 
     if args.sweep:
         print("\ngap-ratio sweep (wrong word counts, lower is better):")

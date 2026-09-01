@@ -13,6 +13,8 @@ finger / stylus ─▶ USB touch panel (evdev → pointer events)
                         │
                  InkCanvas (Tkinter)     captures each pen-down..up as a stroke
                         │
+                 clean_ink()             cut accidental drags and the slide
+                        │                between words when the pen never lifts
                  segment_words()         group strokes into words by pen-lift gaps
                         │
                  Ink.render(deslant)     shear out slant, rasterize each word
@@ -78,10 +80,17 @@ newer releases, and the torch path works fine without it.
 
 - Write a word or short phrase in the pad.
 - Pause — it auto-recognizes and appends to the text box (toggle **Auto**, or `--no-auto`).
+- Write sloppily if you like: a finger dragged across the pad, a knuckle tap off
+  to the side, or a whole phrase written without lifting the pen are all removed
+  before recognition, and the status line says what went (`· 1 drag cut`). See
+  *Sloppy input* below, or `--no-cleanup` to keep every mark.
 - Or tap **Recognize**.
+- **↶ Undo** drops the last stroke (`Ctrl+Z`) — one stray mark shouldn't cost
+  you the whole pad. **Clear pad** wipes it (`Ctrl+L`).
 - **Space / ⌫ / ↵** edit the output; the box is also directly editable with a keyboard.
 - **Copy all** puts the text on the clipboard.
 - **Exit** quits the app (or `Ctrl+Q`). `F11` toggles fullscreen, `Esc` leaves fullscreen.
+  `Ctrl+Return` recognizes now without waiting for the pause.
 - Teach it your own handwriting with **`./run.sh --train`** — see *Training mode* below.
 
 ### Flags
@@ -104,6 +113,8 @@ recognition pipeline:
 --segment / --no-segment    word-by-word vs whole-line (default: whole line for
                             TrOCR, word-by-word for tesseract)
 --word-gap-ratio R          word-break gap ÷ writing height (default 0.4)
+--no-cleanup                keep every mark, including drags and stray taps
+--no-predict                don't guess the rest of the word in the live preview
 --no-deslant                keep slanted writing as-is
 --no-smooth                 render strokes as straight lines, not splines
 --no-spellcheck             don't correct output against the English dictionary
@@ -114,6 +125,8 @@ recognition speed (TrOCR — see "Making it faster"):
 --beams N                   beam width (default 1 = greedy; the checkpoints
                             ship 4, which costs ~4x the decode time)
 --quantize                  load the model as dynamic int8, ~2x faster
+--image-size PX             run the vision encoder at PX by PX instead of 384
+                            (224 is ~3x less encoder work; measure the accuracy)
 --max-tokens N              cap on characters generated per line (default 48)
 
 tesseract backend:
@@ -165,6 +178,52 @@ Or do both steps at once (runs on the Pi too, ~20–40 min on CPU):
 > than the stock model (measured: val CER 0.52 → 0.80). With a 5-minute
 > enrollment, use calibration below instead — it's the same idea Apple uses:
 > keep one strong general model and adapt around it rather than retraining it.
+
+### Sloppy input — drags, no pen lift, stray marks
+
+Not every mark on the pad is writing. A finger brushing the glass leaves a line
+through the middle of a word; a knuckle drops a speck off to the side; writing a
+phrase without lifting the pen records the slide from one word to the next as
+ink. All three make the recognizer's job harder, and none of them are its fault.
+
+`handwriting_app/cleanup.py` removes them before recognition. All three are the
+same shape: a **traverse**, a long horizontal move that carries no vertical
+information. Letters do not do that — even a cursive ligature is short and rises
+and falls, while a traverse runs a line height or more and stays flat. Cutting a
+traverse out also puts the missing pen lift back, so `segment_words()` can see
+word boundaries again in writing that was never lifted.
+
+The thresholds are fractions of the writing height, so they hold for large and
+small hands alike, and they are set conservatively — deleting your writing is
+much worse than leaving a drag in for the model to cope with. A shorter traverse
+is only cut when it was also *fast* (the pen jumped several times further
+between samples than it does while writing) *and* has real writing on both
+sides, which together mean a pen that never lifted rather than a deliberate
+dash. If cleanup would leave the pad empty it is abandoned instead.
+
+Whatever it removes is named in the status line (`Added in 3.2s: 'hello world' ·
+1 drag cut`), and `--no-cleanup` turns the whole thing off. Collected samples
+always store the raw strokes — cleanup is a recognition-time step, so a change
+to it applies retroactively to everything you have already recorded.
+
+Check it against your own handwriting before trusting it:
+
+```bash
+python -m scripts.inspect_cleanup                  # what it removes, and whether it helped
+python -m scripts.inspect_cleanup --dump-png out/  # before/after renders — look at them
+python -m scripts.inspect_cleanup --sweep          # tune the length threshold
+```
+
+The number to watch is word counts: cutting the slide between two words should
+make `segment_words` agree with the label more often. The number to *worry*
+about is ink removed on a sample whose word count did not improve — that is a
+letter going missing.
+
+> **Cursive itself is a different problem.** TrOCR was trained on IAM, which is
+> largely cursive, so joined writing is what it likes; the cleanup above keeps
+> ligatures intact and only cuts genuine traverses. But properly robust cursive
+> and sloppy writing needs a model that reads the pen *trajectory* rather than a
+> bitmap — that is [docs/PHASE3_SCOPE.md](docs/PHASE3_SCOPE.md), not a threshold.
 
 ### Diagnosing bad accuracy
 
@@ -229,13 +288,33 @@ render, preprocess, vision encoder, decode, postprocess — then a sweep of
 median seconds *and* CER for each speed setting. Speed is only worth having if
 the accuracy column holds, so the two are always reported together.
 
-The three levers, biggest first:
+The levers, biggest first:
 
 | Lever | Effect | Cost |
 |---|---|---|
 | `--model-dir microsoft/trocr-small-handwritten` | ~5x less compute | most accuracy risk — measure it |
 | `--quantize` (dynamic int8) | ~2x faster | some accuracy, no re-export needed |
+| `--image-size 224` | ~3x less encoder work | needs measuring; see below |
 | `--beams 1` (**already the default**) | ~4x less decode | negligible; the checkpoints ship `num_beams=4` |
+
+They multiply. Sweep them together and read the CER column:
+
+```bash
+python -m scripts.bench_latency --models microsoft/trocr-base-handwritten microsoft/trocr-small-handwritten --image-sizes 0 224 --quantize off on
+```
+
+**`--image-size`** is the one that is new and least understood. The vision
+encoder's cost is fixed per image and set entirely by how many patches it gets:
+384x384 at a patch size of 16 is 577 patches, 224x224 is 197. The checkpoints
+were trained at 384, so running smaller means interpolating the position
+embeddings — supported by recent `transformers`, and if yours cannot the app
+detects it at load and says `resize unsupported` in the status line rather than
+failing. Whether the accuracy holds is an open question on real handwriting;
+that is what the sweep is for.
+
+The other 1.8 s is not the model at all: `--auto-delay` is how long the app
+waits for you to stop writing before it starts. Lower it (`--auto-delay 800`)
+if you write in short bursts.
 
 The **first** recognition used to take ~30 s because the model initializes
 lazily. That cost is now paid at startup — the status line says
@@ -243,6 +322,27 @@ lazily. That cost is now paid at startup — the status line says
 done, so every recognition the user actually makes runs at steady-state speed.
 While one is running the status line counts up (`Recognizing…  2.4s`) and the
 result reports what it took.
+
+### Watching it decode
+
+The decoder produces one token at a time, so there is no reason to stare at a
+spinner until the whole line lands. The status line streams the text as it
+arrives, and guesses where the word being decoded is heading:
+
+```
+Recognizing…  2.4s   ▸ the quick brow(n)
+```
+
+The guess in parentheses is completed from the English dictionary and your
+personal word list, preferring your own vocabulary. It is **display only** —
+what gets committed to the text box is always what the model actually produced,
+never the guess. `--no-predict` drops the parenthesised half; the streaming
+itself has no cost, because the tokens were being generated anyway.
+
+To be clear about what this does and does not do: streaming does not make
+recognition faster, it makes the wait legible, and lets you see a wrong reading
+early enough to stop waiting for it. The seconds themselves come off with the
+levers above.
 
 ### Calibration — personalization in minutes, no training
 
@@ -252,7 +352,9 @@ python -m scripts.calibrate
 
 One forward pass over your samples. It grid-searches the render settings that
 read *your* hand best, mines words the recognizer reliably misreads for you, and
-writes `data/samples/calibration.json` — which the app loads automatically. Works
+writes `data/samples/calibration.json` — which the app loads automatically. It
+tunes against the *cleaned* ink, the same thing the app feeds the model
+(`--no-cleanup` to tune against the raw strokes instead). Works
 from ~20 samples. Prints baseline vs tuned CER so you can see the gain.
 Opt out at runtime with `--no-calibration`.
 

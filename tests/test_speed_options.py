@@ -41,6 +41,13 @@ def test_speed_flags_parse():
     assert (cfg.beams, cfg.quantize, cfg.max_new_tokens) == (4, True, 12)
 
 
+def test_image_size_defaults_to_the_checkpoints_native_resolution():
+    # 0 means "whatever the processor says", i.e. 384. Interpolating the
+    # position embeddings to anything else is opt-in until it is measured.
+    assert parse_args([]).image_size == 0
+    assert parse_args(["--image-size", "224"]).image_size == 224
+
+
 def test_build_recognizer_passes_speed_options_to_trocr(monkeypatch):
     import handwriting_app.recognizer as pkg
     import handwriting_app.recognizer.trocr_torch_recognizer as mod
@@ -56,12 +63,19 @@ def test_build_recognizer_passes_speed_options_to_trocr(monkeypatch):
     monkeypatch.setattr(pkg, "resolve_model_dir", lambda *_a, **_k: "some/model")
 
     build_recognizer(
-        AppConfig(backend="trocr-torch", beams=4, quantize=True, max_new_tokens=12)
+        AppConfig(
+            backend="trocr-torch",
+            beams=4,
+            quantize=True,
+            max_new_tokens=12,
+            image_size=224,
+        )
     )
 
     assert captured["num_beams"] == 4
     assert captured["quantize"] is True
     assert captured["max_new_tokens"] == 12
+    assert captured["image_size"] == 224
 
 
 # -- warmup --------------------------------------------------------------

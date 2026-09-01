@@ -75,6 +75,7 @@ def build_recognizer(config: AppConfig) -> Recognizer:
             max_new_tokens=config.max_new_tokens,
             num_beams=config.beams,
             quantize=config.quantize,
+            image_size=config.image_size,
         )
 
     raise RecognitionError(f"Unknown backend: {backend!r}")

@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
-from typing import Dict, List
+from typing import Dict
 
 from handwriting_app.calibration import Calibration, save
+from handwriting_app.cleanup import clean_ink
 from handwriting_app.config import AppConfig
-from handwriting_app.dataset import iter_samples
+from handwriting_app.dataset import Sample, iter_samples
 from handwriting_app.pipeline import resolve_segment
 from handwriting_app.recognizer import build_recognizer
 from handwriting_app.segmentation import segment_words
@@ -49,6 +50,13 @@ def parse_args() -> argparse.Namespace:
         choices=["auto", "tesseract", "trocr", "trocr-torch", "trocr-onnx"],
     )
     p.add_argument("--model-dir", default="")
+    p.add_argument(
+        "--no-cleanup",
+        dest="cleanup",
+        action="store_false",
+        help="Tune against the raw strokes instead of the cleaned ink the app "
+        "actually recognizes. Matches running the app with --no-cleanup.",
+    )
     p.add_argument("--limit", type=int, default=0, help="Only use the first N samples.")
     p.add_argument(
         "--min-occurrences",
@@ -132,6 +140,21 @@ def main() -> None:
             f"No samples in {args.samples!r}. Collect some with ./run.sh --train"
         )
     print(f"{len(samples)} samples from {args.samples}")
+
+    # Clean once, up front. The app strips drags, no-lift slides and stray taps
+    # before recognition, so tuning against the raw strokes would tune for an
+    # image the model never sees. Doing it here rather than inside the grid
+    # search also keeps it out of the inner loop — it does not depend on the
+    # render settings being searched.
+    if args.cleanup:
+        cleaned = 0
+        for index, sample in enumerate(samples):
+            ink, report = clean_ink(sample.ink)
+            if report.changed:
+                cleaned += 1
+                samples[index] = Sample(sample.label, ink, sample.stroke_width)
+        if cleaned:
+            print(f"ink cleanup changed {cleaned}/{len(samples)} samples")
 
     recognizer = build_recognizer(
         AppConfig(backend=args.backend, model_dir=args.model_dir)

@@ -30,7 +30,6 @@ import time
 from typing import List, Optional, Sequence, Tuple
 
 from handwriting_app.calibration import load as load_calibration
-from handwriting_app.config import AppConfig
 from handwriting_app.dataset import Sample, iter_samples
 from handwriting_app.enrollment import is_rote
 from handwriting_app.lexicon import personal_word_counts
@@ -67,6 +66,16 @@ def parse_args() -> argparse.Namespace:
         default=["off", "on"],
         choices=["off", "on"],
         help="int8 settings to compare (default: off on).",
+    )
+    p.add_argument(
+        "--image-sizes",
+        nargs="+",
+        type=int,
+        default=[0],
+        metavar="PX",
+        help="Encoder input sizes to compare; 0 is the checkpoint's native 384. "
+        "Cost is set by the patch count, so 224 is about a third of the encoder "
+        "work (default: 0).",
     )
     p.add_argument("--limit", type=int, default=8, help="Samples per config (default: 8).")
     p.add_argument("--stages", action="store_true", help="Stage breakdown only.")
@@ -121,11 +130,20 @@ def report_hardware() -> None:
 
 
 # -- building -------------------------------------------------------------
-def build(model_ref: str, beams: int, quantize: bool, samples_dir: str):
+def build(
+    model_ref: str,
+    beams: int,
+    quantize: bool,
+    samples_dir: str,
+    image_size: int = 0,
+):
     from handwriting_app.recognizer.trocr_torch_recognizer import TrocrTorchRecognizer
 
     recognizer = TrocrTorchRecognizer(
-        model_dir=model_ref, num_beams=beams, quantize=quantize
+        model_dir=model_ref,
+        num_beams=beams,
+        quantize=quantize,
+        image_size=image_size,
     )
     pipeline = RecognitionPipeline(
         recognizer,
@@ -154,13 +172,16 @@ def stage_breakdown(pipeline: RecognitionPipeline, sample: Sample) -> None:
         print("  (nothing to render)\n")
         return
 
-    pixel_values = processor(images=image.convert("RGB"), return_tensors="pt").pixel_values
+    pixel_values = recognizer._pixels(image, recognizer.image_size)  # noqa: SLF001
     t2 = time.perf_counter()
 
+    extra = recognizer._generate_kwargs()  # noqa: SLF001
     with torch.inference_mode():
-        encoded = model.encoder(pixel_values)
+        encoded = model.encoder(pixel_values, **extra)
         t3 = time.perf_counter()
-        ids = model.generate(pixel_values, max_new_tokens=recognizer.max_new_tokens)
+        ids = model.generate(
+            pixel_values, max_new_tokens=recognizer.max_new_tokens, **extra
+        )
     t4 = time.perf_counter()
 
     raw = processor.batch_decode(ids, skip_special_tokens=True)[0].strip()
@@ -226,32 +247,45 @@ def main() -> None:
             return
 
     print(f"sweep over {len(samples)} samples (median seconds per line)\n")
-    header = f"{'model':<34} {'beams':>5} {'int8':>5} {'median':>8} {'p90':>7} {'CER':>6}"
+    header = (
+        f"{'model':<30} {'beams':>5} {'int8':>5} {'px':>5} "
+        f"{'median':>8} {'p90':>7} {'CER':>6}"
+    )
     print(header)
     print("-" * len(header))
 
     for model_ref in models:
         for beams in args.beams:
             for quant in args.quantize:
-                quantize = quant == "on"
-                try:
-                    recognizer, pipeline = build(
-                        model_ref, beams, quantize, args.samples
+                for size in args.image_sizes:
+                    quantize = quant == "on"
+                    short = model_ref.split("/")[-1][:30]
+                    try:
+                        recognizer, pipeline = build(
+                            model_ref, beams, quantize, args.samples, size
+                        )
+                    except Exception as exc:  # noqa: BLE001 - keep the sweep going
+                        print(f"{short:<30} {beams:>5} {quant:>5} {size:>5}   failed: {exc}")
+                        continue
+                    # warmup() is what probes resize support, so ask after.
+                    recognizer.warmup()
+                    if size and not recognizer.image_size:
+                        print(
+                            f"{short:<30} {beams:>5} {quant:>5} {size:>5}   "
+                            "skipped: this transformers cannot resize the encoder"
+                        )
+                        del recognizer, pipeline
+                        continue
+                    times, mean_cer = measure(pipeline, samples)
+                    median = statistics.median(times)
+                    p90 = sorted(times)[max(0, int(len(times) * 0.9) - 1)]
+                    cer_text = f"{mean_cer:.3f}" if mean_cer is not None else "   -- "
+                    print(
+                        f"{short:<30} {beams:>5} {quant:>5} "
+                        f"{recognizer.image_size or 384:>5} "
+                        f"{median:>7.2f}s {p90:>6.2f}s {cer_text:>6}"
                     )
-                except Exception as exc:  # noqa: BLE001 - keep the sweep going
-                    print(f"{model_ref[:34]:<34} {beams:>5} {quant:>5}   failed: {exc}")
-                    continue
-                recognizer.warmup()
-                times, mean_cer = measure(pipeline, samples)
-                median = statistics.median(times)
-                p90 = sorted(times)[max(0, int(len(times) * 0.9) - 1)]
-                cer_text = f"{mean_cer:.3f}" if mean_cer is not None else "   -- "
-                short = model_ref.split("/")[-1][:34]
-                print(
-                    f"{short:<34} {beams:>5} {quant:>5} "
-                    f"{median:>7.2f}s {p90:>6.2f}s {cer_text:>6}"
-                )
-                del recognizer, pipeline
+                    del recognizer, pipeline
 
     print(
         "\nPick the fastest row whose CER is not meaningfully worse than the "
