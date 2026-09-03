@@ -102,8 +102,9 @@ def test_a_sloping_move_is_not_a_traverse():
 
 def test_a_short_gap_crossed_quickly_is_a_traverse():
     """Words written close together still leave a slide when the pen never
-    lifts — it is only half a line height, but it was covered in one stride."""
-    points = _letter(0) + _drag(40, 100, step=30.0)[1:] + _letter(100)[1:]
+    lifts — shorter than a full traverse needs, but covered in one fast
+    stride between real writing on both sides."""
+    points = _letter(0) + _drag(40, 150, step=30.0)[1:] + _letter(150)[1:]
     cleaned, report = clean_ink(_ink(points))
     assert report.traverses_cut == 1
     assert len(cleaned.strokes) == 2
@@ -112,7 +113,24 @@ def test_a_short_gap_crossed_quickly_is_a_traverse():
 def test_the_same_short_gap_drawn_slowly_is_left_alone():
     """Same geometry at writing speed is a deliberate mark — a dash, a
     flourish, an underscore — and deleting it would be a bug."""
-    points = _letter(0) + _drag(40, 100, step=4.0)[1:] + _letter(100)[1:]
+    points = _letter(0) + _drag(40, 150, step=4.0)[1:] + _letter(150)[1:]
+    cleaned, report = clean_ink(_ink(points))
+    assert report.traverses_cut == 0
+    assert len(cleaned.strokes) == 1
+
+
+def test_a_wide_cursive_connector_just_over_one_line_height_survives():
+    """Regression: measured on the Pi against 43 real samples, 2026-09-03.
+
+    A flat connecting stroke at writing speed — the top of a wide 'e' bowl, a
+    't' crossbar — measured 1.02-1.08x the writing height on real cursive
+    handwriting, comfortably clearing what was then the min_length=1.0
+    threshold. It visibly destroyed the letters in 'the' and 'they'. This run
+    sits in that same 1.0-1.1x band: not fast, real writing on both sides,
+    same shape that did the damage. It must not be cut."""
+    points = _letter(0) + _drag(40, 141, step=4.0)[1:] + _letter(141)[1:]
+    height = writing_height(_ink(points))
+    assert 1.0 < 101.0 / height < 1.15  # confirms this reproduces the band
     cleaned, report = clean_ink(_ink(points))
     assert report.traverses_cut == 0
     assert len(cleaned.strokes) == 1

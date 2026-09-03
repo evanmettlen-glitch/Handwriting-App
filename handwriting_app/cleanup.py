@@ -15,17 +15,33 @@ inflates the ink bounding box and shrinks the real writing when the image is
 scaled to the model's input height.
 
 All three are the same shape geometrically: a *traverse*, a long horizontal move
-that carries no vertical information. Letters do not do that. Even a cursive
-ligature between two letters is short (0.15-0.25x the line height) and rises and
-falls; a traverse runs a line height or more and stays flat — or half that, if
-it was also covered fast enough to have been a move rather than a mark. So one
-detector handles drags and missing pen lifts alike — cut the traverse out and
-the strokes on either side become separate words again.
+that carries no vertical information. Letters mostly do not do that — but a
+wide cursive letter can get close: the flat top of an 'e' bowl or a 't' crossbar
+measured at 1.0-1.1x the writing height on real handwriting (see below), well
+past where synthetic test letters ever reached. A traverse has to clear a
+length threshold with real margin above that, or fewer if it was also covered
+fast enough to have been a move rather than a mark. So one detector handles
+drags and missing pen lifts alike — cut the traverse out and the strokes on
+either side become separate words again.
 
 Everything is measured as a fraction of the writing height, so the thresholds
 hold for big and small handwriting alike. Nothing here mutates the input: split
 strokes are new objects and untouched strokes are shared, matching what
 :mod:`handwriting_app.segmentation` already does.
+
+**Measured on real handwriting, 2026-09-03.** The first version of this module
+was tuned on synthetic ink alone and shipped with ``min_length=1.0``. Run
+against the 43 real enrollment samples on the Pi, it visibly destroyed letters
+in 2 of them — the flat top of the 'e' in "the" and the 't' crossbar in "they"
+both measured 1.02-1.08x the writing height, comfortably clearing what had been
+the safe threshold. ``python -m scripts.inspect_cleanup --sweep`` on that same
+data found 1.0-1.0 unsafe (worst case lost 15.8% of a sample's ink for no
+benefit), 1.2 the first value with zero loss, and 1.5-3.0 tied with it exactly —
+so the default here is 1.5, a margin above the first safe point rather than the
+sweep's own longest-tied pick, which would blunt sensitivity to genuine drags
+for no measured gain. ``fast_min_length`` moved by the same ratio for the same
+reason, though it is unexercised by this dataset (none of the 43 samples were
+written without lifting the pen) and still wants real no-lift data to confirm.
 """
 
 from __future__ import annotations
@@ -46,10 +62,14 @@ class CleanupConfig:
     recognizer to cope with.
     """
 
-    #: End-to-end length a traverse must reach to count as one.
-    min_length: float = 1.0
+    #: End-to-end length a traverse must reach to count as one. 1.0 measured
+    #: unsafe on real cursive (see the module docstring) — keep a margin above
+    #: 1.2, the first value that scored zero false positives on real data.
+    min_length: float = 1.5
     #: Length that suffices when the move was also fast (see ``fast_ratio``).
-    fast_min_length: float = 0.5
+    #: Scaled from ``min_length`` by the same ratio as before the correction
+    #: above; unexercised by the real dataset that motivated it.
+    fast_min_length: float = 0.75
     #: Steps this many times the typical writing step mean the pen was moving.
     fast_ratio: float = 3.0
     #: Total vertical extent a traverse is allowed over its whole length.

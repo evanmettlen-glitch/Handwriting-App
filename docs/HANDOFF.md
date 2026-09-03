@@ -307,22 +307,42 @@ change applies retroactively to everything already recorded.
 a strikethrough — is a traverse by every test here and gets removed. That seems
 like the right trade for a handwriting-to-text pad.
 
-**What is not verified yet.** The thresholds were chosen and tested on synthetic
-ink at Pi capture scale (~180 px writing height, 4.5 px steps). Before trusting
-them, run them over real samples on the Pi:
+**Verified on real handwriting, 2026-09-03 — and it found a real bug.** The
+thresholds shipped tuned on synthetic ink alone (simple caret-shaped "letters"
+that never bent the way a real one does), with a note here saying so. Run
+against the 43 real enrollment samples on the Pi:
 
 ```bash
 python -m scripts.inspect_cleanup --dump-png out/
 ```
 
-The 43 existing samples were all written *with* pen lifts, so they only
-exercise the safety half — cleanup should report ~0% of ink removed on them, and
-anything else is a bug. To exercise the other half, collect a handful written
-without lifting the pen and a couple with a deliberate finger drag
-(`./run.sh --train --freeform`), then re-run. The metric that matters is word
-counts: cutting a slide should make `segment_words` agree with the label more
-often. The metric to worry about is ink removed on a sample whose word count did
-*not* improve.
+`min_length=1.0` visibly destroyed letters in 2 of 43 samples: the flat top of
+the cursive 'e' bowl in "the" and the 't' crossbar in "they" both got cut,
+leaving mangled shapes (`out/0005-*.png`, `out/0026-*.png` from that run — worth
+regenerating and eyeballing after any future threshold change). Both measured
+**1.02-1.08x the writing height** — comfortably past what had been the safe
+length, and well beyond where any synthetic test letter ever reached, because a
+wide cursive letter's connecting strokes are exactly the "flat, straight,
+one-way" shape the detector is looking for. `--sweep` confirmed the fix: 1.0 was
+unsafe (worst case lost 15.8% of a sample for zero benefit — no word count
+improved), 1.2 was the first value with zero loss across all 43, and 1.5-3.0
+tied it exactly. Shipped default is now **1.5** — a margin above the first safe
+point rather than the sweep's own longest-tied pick, which would have thrown
+away sensitivity to genuine drags for no measured gain on this data.
+`fast_min_length` moved by the same ratio (0.5→0.75) for the same reason, though
+it never fired on any of the 43 real samples — none were written without
+lifting the pen between words, so that half is still unexercised by real data.
+There is now a regression test (`test_a_wide_cursive_connector_just_over_one_line_height_survives`
+in `tests/test_cleanup.py`) reproducing this exact shape and ratio, so it cannot
+silently come back.
+
+**What is still open.** No real no-lift-between-words or genuine-drag sample
+exists in this dataset — collect a few (`./run.sh --train --freeform`, write a
+phrase without lifting the pen, or drag a finger across the pad on purpose) and
+re-run the sweep. Two numbers matter: word counts (cutting a real slide should
+make `segment_words` agree with the label more often) and ink removed on a
+sample whose word count did *not* improve (that is damage, full stop — the
+`--dump-png` renders are the way to catch it, not the summary numbers alone).
 
 **Where raw and cleaned ink still diverge.** Cleanup runs at recognition time,
 so anything that renders ink for another purpose has to decide for itself:
@@ -398,9 +418,11 @@ progress bar, timer, and live a-z/A-Z/0-9 coverage. Designed for under 5 minutes
 ## What to do next
 
 **Immediate (minutes):**
-0. `python -m scripts.inspect_cleanup --dump-png out/` — confirm ink cleanup
-   removes ~0% on the existing (pen-lifted) samples, then collect a few written
-   without lifting the pen and re-run. See *Ink cleanup* above.
+0. **Done, 2026-09-03.** `inspect_cleanup` against the 43 real samples found
+   `min_length=1.0` cutting real letters — fixed to 1.5, see *Ink cleanup*
+   above. Still open: collect a few samples written without lifting the pen and
+   re-run `--sweep` to validate the other half (`fast_min_length`), which no
+   real sample has exercised yet.
 1. `python -m scripts.bench_latency` — pick the fastest row whose CER matches
    the `beams=1 / int8=off` baseline, then run the app with those flags.
 2. Re-measure accuracy with letter-joining active:
