@@ -36,6 +36,7 @@ seconds, and it is not worth spending two.
 from __future__ import annotations
 
 import os
+import platform
 import time
 from typing import Callable, Optional
 
@@ -46,6 +47,29 @@ from .base import RecognitionError, Recognizer
 # The size the TrOCR checkpoints were trained at. Anything else needs the
 # position embeddings interpolated, which not every transformers version does.
 NATIVE_IMAGE_SIZE = 384
+
+_ARM_MACHINES = ("aarch64", "arm64", "armv7l")
+
+
+def resolve_quantized_engine(
+    current: str, machine: str, supported: tuple
+) -> Optional[str]:
+    """The ``torch.backends.quantized.engine`` to switch to, or ``None`` to
+    leave it alone.
+
+    torch defaults this to ``"x86"``, which is a real choice only on x86 —
+    everywhere else ``quantize_dynamic`` fails with ``RuntimeError: unknown
+    architecure`` (torch's own typo), a message that gives no hint the fix is
+    a backend setting. Measured on a Pi 5 (aarch64), 2026-09-03: every
+    ``--quantize`` run failed with exactly that error until this was added.
+
+    Kept as a pure function, separate from :meth:`_quantize`, so the platform
+    logic is testable without torch installed or a model loaded — the only
+    thing worth getting wrong here is the ARM detection, not the quantizing.
+    """
+    if current != "x86" or machine not in _ARM_MACHINES:
+        return None
+    return "qnnpack" if "qnnpack" in supported else None
 
 
 class _Streamer:
@@ -216,9 +240,17 @@ class TrocrTorchRecognizer(Recognizer):
         TrOCR is almost entirely Linear layers, so this covers the encoder's
         attention/MLP blocks and the decoder alike. Weights are quantized once
         here; activations are quantized per call, which is why it needs no
-        calibration data.
+        calibration data. See :func:`resolve_quantized_engine` for why this
+        also has to touch the backend engine before quantizing at all.
         """
         torch = self._torch
+        engine = resolve_quantized_engine(
+            torch.backends.quantized.engine,
+            platform.machine(),
+            tuple(torch.backends.quantized.supported_engines),
+        )
+        if engine:
+            torch.backends.quantized.engine = engine
         try:
             from torch.ao.quantization import quantize_dynamic
         except ImportError:  # pragma: no cover - torch < 1.13 layout

@@ -36,6 +36,50 @@ def test_speed_defaults_are_the_fast_ones():
     assert cfg.max_new_tokens == 48
 
 
+def test_resolve_quantized_engine_switches_arm_off_the_x86_default():
+    """Regression: measured on a Pi 5 (aarch64), 2026-09-03. torch defaults
+    ``quantized.engine`` to 'x86' everywhere, and quantize_dynamic() fails
+    with 'unknown architecure' (torch's own typo) on any other machine."""
+    from handwriting_app.recognizer.trocr_torch_recognizer import (
+        resolve_quantized_engine,
+    )
+
+    supported = ("qnnpack", "onednn", "x86", "fbgemm")
+    assert resolve_quantized_engine("x86", "aarch64", supported) == "qnnpack"
+    assert resolve_quantized_engine("x86", "arm64", supported) == "qnnpack"
+    assert resolve_quantized_engine("x86", "armv7l", supported) == "qnnpack"
+
+
+def test_resolve_quantized_engine_leaves_x86_machines_alone():
+    from handwriting_app.recognizer.trocr_torch_recognizer import (
+        resolve_quantized_engine,
+    )
+
+    supported = ("qnnpack", "onednn", "x86", "fbgemm")
+    assert resolve_quantized_engine("x86", "x86_64", supported) is None
+    assert resolve_quantized_engine("x86", "AMD64", supported) is None
+
+
+def test_resolve_quantized_engine_leaves_a_non_default_choice_alone():
+    """Only the broken default gets overridden — someone who already picked
+    an engine on purpose is left alone."""
+    from handwriting_app.recognizer.trocr_torch_recognizer import (
+        resolve_quantized_engine,
+    )
+
+    supported = ("qnnpack", "onednn", "x86", "fbgemm")
+    assert resolve_quantized_engine("qnnpack", "aarch64", supported) is None
+    assert resolve_quantized_engine("onednn", "aarch64", supported) is None
+
+
+def test_resolve_quantized_engine_declines_without_qnnpack_available():
+    from handwriting_app.recognizer.trocr_torch_recognizer import (
+        resolve_quantized_engine,
+    )
+
+    assert resolve_quantized_engine("x86", "aarch64", ("x86", "fbgemm")) is None
+
+
 def test_speed_flags_parse():
     cfg = parse_args(["--beams", "4", "--quantize", "--max-tokens", "12"])
     assert (cfg.beams, cfg.quantize, cfg.max_new_tokens) == (4, True, 12)
