@@ -5,8 +5,13 @@ with a finger or stylus, get editable text. Fully offline.
 
 **Repo:** github.com/evanmettlen-glitch/Handwriting-App (public)
 **Hardware:** Raspberry Pi 5 "HomeHubSSD", HDMI display + USB touch panel
-**State as of 2026-08-31:** working end to end; accuracy is the open problem.
-21 commits, 121 tests passing.
+**State as of 2026-09-03:** working end to end; accuracy is solid on this
+user's samples, latency is mostly solved (`--model-dir
+microsoft/trocr-small-handwritten` alone: 4.21s → 0.62s/line, zero measured
+accuracy cost). Two real bugs found by testing on the Pi this session and
+fixed — see *Ink cleanup* and *Latency* below before touching either.
+25 commits, 126 tests passing (111 on the Pi itself; the other 15 need a
+display and are skipped over SSH).
 
 ---
 
@@ -15,14 +20,19 @@ with a finger or stylus, get editable text. Fully offline.
 ```bash
 ssh evmett@HomeHubSSD
 cd ~/HandWritingApp
-./run.sh                 # or ./run.sh --fullscreen for kiosk
+./run.sh --model-dir microsoft/trocr-small-handwritten   # 6.8x faster, no measured accuracy cost
+# add --fullscreen for kiosk mode
 ```
 
-First recognition takes ~30 s (model load), then ~3–8 s per line. The status
-line at the bottom tells you exactly what is active:
+Startup (model load + warm-up) measured **~6s** on the Pi this session for the
+default `trocr-base`, then ~4.2s/line at fp32 — but see *Latency* below before
+running the default: `--model-dir microsoft/trocr-small-handwritten` measured
+**6.8x faster with zero accuracy cost** on this user's samples, which makes it
+the actual recommendation, not a knob to consider later. The status line at the
+bottom tells you exactly what is active:
 
 ```
-Ready · backend: trocr-torch:trocr-base-handwritten
+Ready · backend: trocr-torch:trocr-small-handwritten
         (personal lexicon: 78 words; calibrated on 43 samples; whole line)
 ```
 
@@ -158,7 +168,7 @@ word gaps unambiguous, which fixes segmentation as a side effect.
 | **Fine-tuning TrOCR on the enrollment set** | Measured: val CER **0.52 → 0.80** on 40 samples. It memorizes and generalizes worse. Needs 150–300+. |
 | **SymSpell compound mode for split letters** | Measured: `w i t h` → `a it a`, `a n d` → `an a`. Makes it worse. |
 
-### Latency (the open problem as of 2026-08-31)
+### Latency — mostly solved 2026-09-03, was the open problem as of 2026-08-31
 
 Accuracy is now acceptable; **time to result is the complaint**. The whole cost
 is TrOCR-base on a CPU — render, segmentation, and spell correction are
@@ -173,31 +183,70 @@ Shipped, no accuracy risk:
 - **A counting-up status line** (`Recognizing…  2.4s`) and elapsed time on the
   result, so a slow run reads as slow rather than hung.
 
-Knobs, biggest lever first — all measurable with the bench:
+**Measured on the Pi, 2026-09-03** — 8 samples, greedy decoding, temp 49°C,
+throttle clean:
 
-| Flag | Effect | Risk |
-|---|---|---|
-| `--model-dir microsoft/trocr-small-handwritten` | ~5x less compute | real accuracy risk |
-| `--quantize` | ~2x faster (dynamic int8) | some accuracy |
-| `--image-size 224` | ~3x less encoder work (577 patches -> 197) | needs measuring |
-| `--beams 1` | ~4x less decode — **now the default** | negligible |
+| Config | Median | CER | Verdict |
+|---|---|---|---|
+| base, 384px, fp32 | 4.21s | 0.000 | baseline |
+| base, 224px, fp32 | 3.25s | 0.917 | **broken** — position-embedding interpolation costs real accuracy |
+| base, 384px, int8 | 3.84s | **2.000** | **broken worse** — barely faster, output is garbage, see below |
+| small, 384px, fp32 | **0.62s** | 0.000 | **the win** — 6.8x faster, zero measured accuracy cost |
+| small, 224px, fp32 | 0.44s | 0.500 | broken for the same reason as base |
+| small, 384px, int8 | 0.81s | 0.000 | **slower than fp32**, no accuracy change — pure loss |
 
-`--beams 1` is the one free win: the `microsoft/trocr-*` checkpoints ship
-`num_beams=4` in their generation config, so every recognition was running beam
-search four ways over 577 encoder patches by default.
+**The model swap is the whole story.** `microsoft/trocr-small-handwritten`
+matched base exactly (CER 0.000 on both) at under a seventh of the time. The old
+table below called this "real accuracy risk" — that was an unmeasured guess, and
+it was wrong. **Shipped recommendation: `--model-dir microsoft/trocr-small-handwritten`, nothing else.**
 
-`--image-size` is the newest knob and the least understood. The vision encoder's
-cost is fixed per image and set entirely by the patch count: 384x384 at patch 16
-is 577 patches, 224x224 is 197. Running below the trained size means
-interpolating the ViT position embeddings, which recent `transformers` supports
-and older ones do not — `TrocrTorchRecognizer` probes once at load with a
-throwaway inference and falls back to 384, saying `resize unsupported` in the
-status line, rather than failing on a real line. **Whether accuracy survives on
-handwriting is unmeasured.** The bench sweeps it:
+**`--image-size` costs real accuracy, measured, not guessed.** ~25% faster
+matches the patch-count arithmetic (577→197 patches), but CER goes to 0.5-0.9 on
+both models. Kept in the code — a future checkpoint fine-tuned at that
+resolution might not pay this cost — but not part of the recommended setup.
 
-```bash
-python -m scripts.bench_latency --image-sizes 0 256 224 --quantize off on
+**`--quantize` is a net loss, and it was also hard-broken until this session.**
+Every attempt used to fail with `RuntimeError: unknown architecure` (torch's own
+typo) — a crash, not an accuracy tradeoff. Root cause:
+`torch.backends.quantized.engine` defaults to `"x86"` on every platform,
+including aarch64, and that dispatch has no kernel for ARM. `qnnpack` is right
+there in `torch.backends.quantized.supported_engines` and never gets picked.
+Fixed in `resolve_quantized_engine()` (`trocr_torch_recognizer.py`) — switches
+to `qnnpack` only when the engine is still that unconfigured default and the
+machine is actually ARM, so an x86 box is untouched; verified going from a hard
+crash to `quantized ok: True`.
+
+With that fixed, quantizing turned out not to help at all. On `small` it is
+**slower** than fp32 (0.66s → 0.81s measured directly, not the table's rounded
+0.62/0.81) for no CER change — the qnnpack dynamic-quant overhead outweighs
+anything it saves on a model this size. On `base` it runs without crashing but
+the output is wrong in a way fp32 never is on the same inputs — four words that
+read perfectly at fp32:
+
 ```
+'the' -> '8th q'
+'and' -> 'car us of'
+'you' -> '1/ MO.S'
+'was' -> 'wrote .'
+```
+
+A console warning during quantization (`qnnpack incorrectly ignores
+reduce_range when it is set to true`) is a plausible contributing factor —
+reduce_range trims the effective int8 range to avoid overflow on certain ops,
+and qnnpack silently not honoring it could explain damage concentrated in the
+attention-heavy base model — but this is an observation, not a diagnosis; it
+was not chased further because the practical answer (don't use `--quantize`
+here) didn't need it. **Don't use `--quantize` on this hardware.**
+
+Old table, kept for what changed and why — everything in it except `--beams 1`
+turned out to need correcting once actually measured:
+
+| Flag | Guessed effect | What measuring found |
+|---|---|---|
+| `--model-dir microsoft/trocr-small-handwritten` | ~5x less compute, "real accuracy risk" | 6.8x, **zero** accuracy cost |
+| `--quantize` | ~2x faster | crashed on ARM until fixed; once fixed, slower-or-garbage |
+| `--image-size 224` | ~3x less encoder work, "needs measuring" | measured: not worth it, see above |
+| `--beams 1` | ~4x less decode — **already the default** | confirmed; the checkpoints ship `num_beams=4` |
 
 Also worth remembering that ~1.8 s of the wait is not the model: `auto_delay_ms`
 is how long the app waits for writing to stop before it starts.
@@ -423,8 +472,12 @@ progress bar, timer, and live a-z/A-Z/0-9 coverage. Designed for under 5 minutes
    above. Still open: collect a few samples written without lifting the pen and
    re-run `--sweep` to validate the other half (`fast_min_length`), which no
    real sample has exercised yet.
-1. `python -m scripts.bench_latency` — pick the fastest row whose CER matches
-   the `beams=1 / int8=off` baseline, then run the app with those flags.
+1. **Done, 2026-09-03.** `bench_latency` swept model/beams/quantize/image-size
+   on the Pi. Answer: `--model-dir microsoft/trocr-small-handwritten`, nothing
+   else — 6.8x faster, zero measured accuracy cost. `--quantize` and
+   `--image-size` both measured net-negative; see *Latency* above. Also fixed
+   in passing: `--quantize` was hard-crashing on ARM (wrong torch backend
+   engine), separately from being not worth using once it ran.
 2. Re-measure accuracy with letter-joining active:
    `python -m scripts.eval_backend --limit 12`
 3. If improved, re-run `python -m scripts.calibrate` (~45 min) to re-tune with

@@ -288,9 +288,14 @@ def main() -> None:
                     del recognizer, pipeline
 
     print(
-        "\nPick the fastest row whose CER is not meaningfully worse than the "
-        "beams=1/int8=off baseline, then run the app with the matching flags:\n"
-        "  ./run.sh --beams 1 --quantize [--model-dir microsoft/trocr-small-handwritten]"
+        "\nPick the fastest row above whose CER is not meaningfully worse than "
+        "the fp32/384px baseline for the model you'd actually ship. Measured on "
+        "the reference Pi, 2026-09-03: the model swap alone was the whole win "
+        "(trocr-small matched trocr-base's CER at ~1/7th the time); --quantize "
+        "was neutral-to-slower and once fixed from a hard crash still cost real "
+        "accuracy on base; --image-size 224 cost real accuracy on both models. "
+        "Don't assume any of that transfers to your hardware or handwriting —\n"
+        "this sweep is what answers it for you."
     )
 
 

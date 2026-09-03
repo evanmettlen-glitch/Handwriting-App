@@ -61,7 +61,10 @@ For anything other than careful block capitals, install TrOCR:
 
 That's it — no export step. The model (`microsoft/trocr-base-handwritten`)
 downloads and caches on first run, and `--backend auto` picks it up
-automatically. Expect ~3–8 s/line on a Pi 5 CPU.
+automatically. Expect ~3–8 s/line on a Pi 5 CPU — or ~0.6s with
+`--model-dir microsoft/trocr-small-handwritten`, measured with no accuracy
+loss on this project's own samples. See *Making it faster* below before
+assuming the base model is the only option.
 
 **Optional speed-up.** Exporting to ONNX roughly halves latency, and the app
 prefers an exported model automatically when it finds one:
@@ -288,29 +291,50 @@ render, preprocess, vision encoder, decode, postprocess — then a sweep of
 median seconds *and* CER for each speed setting. Speed is only worth having if
 the accuracy column holds, so the two are always reported together.
 
-The levers, biggest first:
+The levers, biggest first — **measured on the Pi, 2026-09-03**, 8 samples,
+greedy decoding, temp 49°C with a clean throttle state so the numbers are real:
 
-| Lever | Effect | Cost |
+| Lever | Measured | Cost |
 |---|---|---|
-| `--model-dir microsoft/trocr-small-handwritten` | ~5x less compute | most accuracy risk — measure it |
-| `--quantize` (dynamic int8) | ~2x faster | some accuracy, no re-export needed |
-| `--image-size 224` | ~3x less encoder work | needs measuring; see below |
-| `--beams 1` (**already the default**) | ~4x less decode | negligible; the checkpoints ship `num_beams=4` |
+| `--model-dir microsoft/trocr-small-handwritten` | **4.21s → 0.62s** (6.8x) | **none** — CER 0.000 on both, same as base |
+| `--beams 1` (**already the default**) | ~4x less decode vs. the checkpoints' default of 4 | negligible |
+| `--image-size 224` | 4.21s → 3.25s on base | **not worth it** — CER 0.000 → 0.917. Measured, not a guess: don't use it |
+| `--quantize` | 0.62s → 0.81s on small; 4.21s → 3.84s on base | **not worth it** — slower on small, and destroys base's output entirely |
 
-They multiply. Sweep them together and read the CER column:
+**The model swap is the whole story.** `trocr-small-handwritten` reads this
+user's handwriting exactly as well as `trocr-base` on the enrollment set (CER
+0.000, both) at under a seventh of the time. There was no tradeoff to make —
+just an unmeasured assumption ("most accuracy risk") that turned out to be
+wrong once actually run. **Recommended: `--model-dir microsoft/trocr-small-handwritten`, nothing else.**
+
+**`--image-size` is not worth it, measured.** The vision encoder's cost is
+fixed per image and set by patch count — 384x384 is 577 patches, 224x224 is
+197 — so the ~25% wall-clock win is real. But CER went from 0.000 to 0.917 on
+the base model and 0.000 to 0.500 on small: the position-embedding
+interpolation this needs is not free on real handwriting. Left in the code
+(`--image-size PX`, off by default) because a different checkpoint or dataset
+might tolerate it better, but it is not part of the recommended setup.
+
+**`--quantize` is a net loss on this hardware, and it was also outright broken
+until this session.** Every attempt used to fail with `RuntimeError: unknown
+architecure` (torch's own typo) — a crash, not an accuracy tradeoff. Root cause:
+`torch.backends.quantized.engine` defaults to `"x86"` regardless of host
+architecture, and that has no kernel for the Pi's aarch64.
+`handwriting_app/recognizer/trocr_torch_recognizer.py` now switches to
+`qnnpack` (the ARM engine, already listed in torch's own `supported_engines`,
+just never selected) — but only when the current engine is still that broken
+default, so an x86 dev machine is untouched. With that fixed, quantizing turned
+out not to help at all: **slower** on the small model (0.66s → 0.81s, no CER
+change) and, on base, it runs but the output is garbage —
+`'the' → '8th q'`, `'and' → 'car us of'`, `'you' → '1/ MO.S'`, four words fp32
+reads perfectly. Not a subtle tradeoff. Don't use `--quantize` on this hardware.
+
+Sweep any of this yourself — the flags exist and are measured honestly, even
+where the answer turned out to be "don't":
 
 ```bash
-python -m scripts.bench_latency --models microsoft/trocr-base-handwritten microsoft/trocr-small-handwritten --image-sizes 0 224 --quantize off on
+python -m scripts.bench_latency --models microsoft/trocr-base-handwritten microsoft/trocr-small-handwritten --quantize off on
 ```
-
-**`--image-size`** is the one that is new and least understood. The vision
-encoder's cost is fixed per image and set entirely by how many patches it gets:
-384x384 at a patch size of 16 is 577 patches, 224x224 is 197. The checkpoints
-were trained at 384, so running smaller means interpolating the position
-embeddings — supported by recent `transformers`, and if yours cannot the app
-detects it at load and says `resize unsupported` in the status line rather than
-failing. Whether the accuracy holds is an open question on real handwriting;
-that is what the sweep is for.
 
 The other 1.8 s is not the model at all: `--auto-delay` is how long the app
 waits for you to stop writing before it starts. Lower it (`--auto-delay 800`)
