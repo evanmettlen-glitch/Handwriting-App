@@ -14,7 +14,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont
-from typing import List
+from typing import List, Sequence, Set
 
 from handwriting_app.canvas_widget import InkCanvas
 from handwriting_app.config import AppConfig
@@ -32,6 +32,22 @@ from handwriting_app.widgets import ProgressBar
 _BG = "#1e1e1e"
 _FG = "#f0f0f0"
 _MUTED = "#9a9a9a"
+
+
+def _first_undone(prompts: Sequence[str], done_labels: Set[str], start: int = 0) -> int:
+    """Index of the first prompt from ``start`` on that is not already collected.
+
+    Called on resume *and* after every advance, not just once at startup —
+    that one-time-only version used to skip a leading run of done prompts and
+    then walk the rest linearly, so a gap anywhere past the first undone prompt
+    (e.g. one sample deleted from the middle of a finished set) re-served and
+    re-saved every prompt after it, duplicating an entire completed enrollment
+    for the cost of restoring one label.
+    """
+    index = start
+    while index < len(prompts) and prompts[index] in done_labels:
+        index += 1
+    return index
 
 
 class TrainingApp(tk.Tk):
@@ -57,13 +73,13 @@ class TrainingApp(tk.Tk):
 
         # Resume within the fixed prompt sequence by skipping prompts whose exact
         # label was already collected (a returning user), not by raw file count.
-        done_labels = {s.label for s in iter_samples(self.samples_dir)}
+        # _done_labels is kept live (grown on every save, consulted on every
+        # advance) rather than computed once — see _first_undone.
+        self._done_labels: Set[str] = {s.label for s in iter_samples(self.samples_dir)}
         self._prior = min(
-            sum(1 for p in self.prompts if p in done_labels), self.target
+            sum(1 for p in self.prompts if p in self._done_labels), self.target
         )
-        self.index = 0
-        while self.index < len(self.prompts) and self.prompts[self.index] in done_labels:
-            self.index += 1
+        self.index = _first_undone(self.prompts, self._done_labels)
 
         self.session_saved = 0
         self._start = time.monotonic()
@@ -231,7 +247,8 @@ class TrainingApp(tk.Tk):
             self.status.config(text=f"Save failed: {exc}")
             return
         self.session_saved += 1
-        self.index += 1
+        self._done_labels.add(label)
+        self.index = _first_undone(self.prompts, self._done_labels, self.index + 1)
         self.canvas.clear()
         self.status.config(text=f"Saved {path.name}")
         self._refresh()
@@ -239,7 +256,7 @@ class TrainingApp(tk.Tk):
     def _skip(self) -> None:
         if self._finished():
             return
-        self.index += 1
+        self.index = _first_undone(self.prompts, self._done_labels, self.index + 1)
         self.canvas.clear()
         self.status.config(text="Skipped")
         self._refresh()
