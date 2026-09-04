@@ -4,6 +4,7 @@ from handwriting_app.dataset import (
     count_samples,
     iter_samples,
     load_sample,
+    representative,
     save_sample,
 )
 from handwriting_app.ink import Ink
@@ -86,3 +87,44 @@ def test_builtin_prompts_load():
     assert len(prompts) > 100
     assert "the" in prompts
     assert all(not p.startswith("#") for p in prompts)
+
+
+# -- representative(): an evenly-spaced subset, not the easiest slice -------
+
+
+class _Labelled:
+    def __init__(self, label):
+        self.label = label
+
+
+def test_representative_spreads_picks_across_the_whole_set():
+    """Regression, measured 2026-09-03: bench_latency and eval_backend both
+    used to slice the first N samples. iter_samples yields enrollment order —
+    rote prompts, then single words, then multi-word lines — so that took the
+    easiest samples in the set, and (with rote excluded from CER) scored
+    accuracy on four one-word samples while every multi-word sample went
+    unmeasured."""
+    samples = [_Labelled(str(i)) for i in range(43)]
+    picked = [s.label for s in representative(samples, 8)]
+
+    assert len(picked) == 8
+    assert picked[0] == "0"
+    # Must reach the far end of the set, where the hard multi-word samples live.
+    assert int(picked[-1]) > 30
+    assert len(set(picked)) == 8  # no duplicates
+
+
+def test_representative_returns_everything_when_unlimited():
+    samples = [_Labelled(str(i)) for i in range(43)]
+    assert len(representative(samples, 0)) == 43       # 0 means no limit
+    assert len(representative(samples, 99)) == 43      # limit above the count
+    assert len(representative(samples, 43)) == 43
+
+
+def test_representative_never_indexes_past_the_end():
+    for count in (1, 2, 3, 7):
+        samples = [_Labelled(str(i)) for i in range(count)]
+        for limit in (1, 2, 3, 5, 8, 100):
+            picked = representative(samples, limit)
+            assert len(picked) <= max(count, 1)
+            assert all(p in samples for p in picked)

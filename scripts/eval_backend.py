@@ -7,6 +7,9 @@ no tuning — unlike calibrate.py, which runs several.
     python -m scripts.eval_backend --backend tesseract
     python -m scripts.eval_backend --model-dir models/evan
     python -m scripts.eval_backend --limit 10               # quick smoke check
+                                                              #  (spread across
+                                                              #   the set, not
+                                                              #   the easiest 10)
 
 Reports overall CER and exact-match word accuracy, split into natural-language
 prompts and rote coverage prompts (alphabet runs, digit strings) — a
@@ -21,7 +24,7 @@ from typing import List, Tuple
 
 from handwriting_app.calibration import load as load_calibration
 from handwriting_app.config import AppConfig
-from handwriting_app.dataset import iter_samples
+from handwriting_app.dataset import iter_samples, representative
 from handwriting_app.enrollment import is_rote
 from handwriting_app.lexicon import personal_word_counts
 from handwriting_app.pipeline import (
@@ -88,12 +91,18 @@ def summarize(rows: List[Tuple[str, str, float]], title: str) -> None:
 def main() -> None:
     args = parse_args()
 
-    samples = list(iter_samples(args.samples))
-    if args.limit:
-        samples = samples[: args.limit]
+    everything = list(iter_samples(args.samples))
+    samples = representative(everything, args.limit)
     if not samples:
         raise SystemExit(
             f"No samples in {args.samples!r}. Collect some with ./run.sh --train"
+        )
+    if args.limit and args.limit < len(everything):
+        scored = sum(1 for s in samples if not is_rote(s.label))
+        print(
+            f"--limit {args.limit} of {len(everything)}: spread across the set, "
+            f"not the first {args.limit} — {scored} will count toward CER below.\n"
+            "For a real accuracy number, drop --limit and use the full set.\n"
         )
 
     config = AppConfig(backend=args.backend, model_dir=args.model_dir)

@@ -36,47 +36,14 @@ def test_speed_defaults_are_the_fast_ones():
     assert cfg.max_new_tokens == 48
 
 
-class _Labelled:
-    def __init__(self, label):
-        self.label = label
+def test_bench_latency_uses_the_shared_representative_not_a_copy():
+    """Regression: this used to be its own copy inside bench_latency.py. A
+    second copy is how eval_backend ended up with the same easiest-first bug
+    uncaught — fix one, forget the sibling. Pin it to the shared one."""
+    from handwriting_app.dataset import representative as shared
+    from scripts.bench_latency import representative as used
 
-
-def test_representative_spreads_picks_across_the_whole_set():
-    """Regression, measured 2026-09-03: bench_latency used to slice the first
-    N samples. iter_samples yields enrollment order — rote prompts, then single
-    words, then multi-word lines — so that took the easiest samples in the set
-    and, with rote excluded from CER, scored accuracy on four one-word samples.
-    """
-    from scripts.bench_latency import representative
-
-    samples = [_Labelled(str(i)) for i in range(43)]
-    picked = [s.label for s in representative(samples, 8)]
-
-    assert len(picked) == 8
-    assert picked[0] == "0"
-    # Must reach the far end of the set, where the hard multi-word samples live.
-    assert int(picked[-1]) > 30
-    assert len(set(picked)) == 8  # no duplicates
-
-
-def test_representative_returns_everything_when_unlimited():
-    from scripts.bench_latency import representative
-
-    samples = [_Labelled(str(i)) for i in range(43)]
-    assert len(representative(samples, 0)) == 43       # 0 means no limit
-    assert len(representative(samples, 99)) == 43      # limit above the count
-    assert len(representative(samples, 43)) == 43
-
-
-def test_representative_never_indexes_past_the_end():
-    from scripts.bench_latency import representative
-
-    for count in (1, 2, 3, 7):
-        samples = [_Labelled(str(i)) for i in range(count)]
-        for limit in (1, 2, 3, 5, 8, 100):
-            picked = representative(samples, limit)
-            assert len(picked) <= max(count, 1)
-            assert all(p in samples for p in picked)
+    assert used is shared
 
 
 def test_resolve_quantized_engine_switches_arm_off_the_x86_default():

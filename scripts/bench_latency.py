@@ -30,7 +30,7 @@ import time
 from typing import List, Optional, Sequence, Tuple
 
 from handwriting_app.calibration import load as load_calibration
-from handwriting_app.dataset import Sample, iter_samples
+from handwriting_app.dataset import Sample, iter_samples, representative
 from handwriting_app.enrollment import is_rote
 from handwriting_app.lexicon import personal_word_counts
 from handwriting_app.models import resolve_model_dir
@@ -210,26 +210,6 @@ def stage_breakdown(pipeline: RecognitionPipeline, sample: Sample) -> None:
 
 
 # -- part 2: sweep --------------------------------------------------------
-def representative(samples: Sequence[Sample], limit: int) -> List[Sample]:
-    """An evenly-spaced subset, rather than the first ``limit`` samples.
-
-    ``iter_samples`` yields enrollment order, which is deliberately graded:
-    rote coverage prompts first, then single words, then multi-word lines. So
-    slicing the front takes the *easiest* samples in the set — and because rote
-    prompts are excluded from CER, a small limit can leave the whole accuracy
-    column resting on a handful of one-word samples.
-
-    Measured 2026-09-03, and the reason this function exists: the old
-    ``--limit 8`` scored CER on exactly four samples — 'the', 'and', 'you',
-    'was' — while all 21 multi-word samples went unmeasured. That produced a
-    confident "CER 0.000, no accuracy cost" for a model swap which, measured
-    over the full set, actually cost 0.425 -> 0.486. Spacing the picks keeps a
-    limited run honest about what it is averaging.
-    """
-    if not limit or limit >= len(samples):
-        return list(samples)
-    step = len(samples) / limit
-    return [samples[min(len(samples) - 1, int(i * step))] for i in range(limit)]
 
 
 def measure(

@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, List, Union
+from typing import Iterator, List, Sequence, Union
 
 from handwriting_app import __version__
 from handwriting_app.ink import Ink
@@ -114,3 +114,23 @@ def iter_samples(samples_dir: PathLike) -> Iterator[Sample]:
             yield load_sample(path)
         except (KeyError, TypeError, ValueError, OSError):
             continue
+
+
+def representative(samples: Sequence[Sample], limit: int) -> List[Sample]:
+    """An evenly-spaced subset of ``samples``, rather than the first ``limit``.
+
+    ``iter_samples`` yields enrollment order, which is deliberately graded:
+    rote coverage prompts first, then single words, then multi-word lines. A
+    plain ``samples[:limit]`` therefore takes the *easiest* samples in the set.
+
+    That silently broke two tools before this existed, measured 2026-09-03:
+    ``bench_latency --limit 8`` scored CER on exactly four one-word samples
+    while all 21 multi-word samples went unmeasured, producing a confident and
+    wrong "no accuracy cost" conclusion; ``eval_backend --limit N`` has the
+    same slice and the same exposure. Spreading the picks across the whole set
+    keeps a limited run honest about what it is actually averaging.
+    """
+    if not limit or limit >= len(samples):
+        return list(samples)
+    step = len(samples) / limit
+    return [samples[min(len(samples) - 1, int(i * step))] for i in range(limit)]
