@@ -404,7 +404,13 @@ writes `data/samples/calibration.json` — which the app loads automatically. It
 tunes against the *cleaned* ink, the same thing the app feeds the model
 (`--no-cleanup` to tune against the raw strokes instead). Works
 from ~20 samples. Prints baseline vs tuned CER so you can see the gain.
-Opt out at runtime with `--no-calibration`.
+
+**Once `calibration.json` exists, it overrides `--stroke-width`,
+`--word-gap-ratio`, `--no-deslant` and `--no-smooth` unconditionally** — even
+when you pass one of those explicitly on the command line, silently, with
+nothing in the status line to say so. `--no-calibration` is the only way to
+make those flags take effect again; it is not just an opt-out, it is
+occasionally a required one.
 
 ### Using the learned data
 

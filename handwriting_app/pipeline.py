@@ -52,7 +52,17 @@ class RecognitionPipeline:
             if config.spellcheck
             else None
         )
-        # Calibration overrides the render settings it was measured with.
+        # Calibration overrides these render settings UNCONDITIONALLY when
+        # present — including a value the caller passed explicitly, e.g.
+        # `--stroke-width 12` after `scripts/calibrate.py` has written
+        # calibration.json silently loses to whatever calibration measured.
+        # There is no "the user asked for this on purpose" signal at this
+        # layer to check first: AppConfig's fields carry only the resolved
+        # value, not whether argparse's default was overridden, so distinguishing
+        # them would mean threading that through config.py and app.py as well —
+        # out of scope for this constructor. `--no-calibration` is the escape
+        # hatch and the *only* one; it is called out here because that is easy
+        # to miss from the CLI help text alone.
         self.segment = config.segment
         cal = config.calibration
         self._deslant = cal.deslant if cal else config.deslant

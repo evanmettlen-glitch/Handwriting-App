@@ -127,3 +127,40 @@ def test_pipeline_uses_calibration_render_settings_and_fixes():
     )
     assert pipe.run(ink) == "the"
     assert "calibrated on 0 samples" in " ".join(pipe.notes)
+
+
+def test_calibration_overrides_an_explicitly_set_config_value_too():
+    """Documents real, deliberate-but-undiscoverable behavior: calibration
+    wins even over a render setting the caller set on purpose (what
+    --stroke-width, --word-gap-ratio, --no-deslant, --no-smooth become on the
+    CLI), with nothing telling the caller their value was ignored. See the
+    override comment in RecognitionPipeline.__init__ and the --no-calibration
+    help text, which is the only way to make an explicit value stick."""
+    from handwriting_app.pipeline import PipelineConfig, RecognitionPipeline
+    from handwriting_app.recognizer.base import Recognizer
+
+    class Fake(Recognizer):
+        name = "fake"
+
+        def recognize(self, image, *, hint="line"):
+            return ""
+
+    # Every one of these differs from what the calibration below carries --
+    # standing in for a user who explicitly chose these on the command line.
+    explicit = PipelineConfig(
+        stroke_width=99,
+        render_pad=99,
+        deslant=False,
+        smooth=False,
+        word_gap_ratio=9.0,
+        calibration=Calibration(
+            stroke_width=4, render_pad=8, deslant=True, smooth=True,
+            word_gap_ratio=0.4,
+        ),
+    )
+    pipe = RecognitionPipeline(Fake(), explicit)
+    assert pipe._stroke_width == 4
+    assert pipe._render_pad == 8
+    assert pipe._deslant is True
+    assert pipe._smooth is True
+    assert pipe._word_gap_ratio == 0.4

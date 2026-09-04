@@ -134,7 +134,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-calibration",
         dest="calibration",
         action="store_false",
-        help="Ignore data/samples/calibration.json (see scripts/calibrate.py).",
+        help="Ignore data/samples/calibration.json (see scripts/calibrate.py). "
+        "Pass this if calibration.json exists and you need --stroke-width, "
+        "--word-gap-ratio, --no-deslant or --no-smooth to actually take "
+        "effect — calibration overrides all four unconditionally, silently, "
+        "even when you set them explicitly on this command line.",
     )
     p.add_argument("--fullscreen", action="store_true", help="Start in fullscreen kiosk mode.")
     p.add_argument(
@@ -150,7 +154,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MS",
         help="Idle time before auto-recognize fires (default: 1800).",
     )
-    p.add_argument("--stroke-width", type=int, default=AppConfig.stroke_width, help="Pen width in pixels.")
+    p.add_argument(
+        "--stroke-width",
+        type=int,
+        default=AppConfig.stroke_width,
+        help="Pen width in pixels. No effect if calibration.json exists — see "
+        "--no-calibration.",
+    )
     p.add_argument(
         "--font-scale",
         type=float,
@@ -182,7 +192,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--word-gap-ratio",
         type=float,
         default=AppConfig.word_gap_ratio,
-        help="Word-break gap as a fraction of writing height (default: 0.4).",
+        help="Word-break gap as a fraction of writing height (default: 0.4). "
+        "No effect if calibration.json exists — see --no-calibration.",
     )
     p.add_argument(
         "--no-cleanup",
@@ -202,13 +213,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-deslant",
         dest="deslant",
         action="store_false",
-        help="Do not straighten slanted writing before recognition.",
+        help="Do not straighten slanted writing before recognition. No effect "
+        "if calibration.json exists — see --no-calibration.",
     )
     p.add_argument(
         "--no-smooth",
         dest="smooth",
         action="store_false",
-        help="Render strokes as straight lines instead of splines.",
+        help="Render strokes as straight lines instead of splines. No effect "
+        "if calibration.json exists — see --no-calibration.",
     )
     p.add_argument(
         "--no-spellcheck",
