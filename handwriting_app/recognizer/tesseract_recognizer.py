@@ -21,7 +21,7 @@ class TesseractRecognizer(Recognizer):
     def __init__(
         self,
         lang: str = "eng",
-        psm: int = 7,
+        psm: Optional[int] = None,
         whitelist: str | None = None,
         binary: str = "tesseract",
         timeout: float = 30.0,
@@ -66,7 +66,14 @@ class TesseractRecognizer(Recognizer):
     ) -> str:
         # tesseract returns the whole line at once, so there is nothing to stream.
         gray = self._preprocess(image)
-        psm = 8 if hint == "word" else self.psm  # 8 = treat image as a single word
+        # None means "choose per image": 8 for a single word, 7 for a line.
+        # An explicit --psm has to win, or the flag is dead in the default
+        # config — segmentation is ON for tesseract, so every image arrives
+        # with hint="word" and the override fired every time.
+        if self.psm is not None:
+            psm = self.psm
+        else:
+            psm = 8 if hint == "word" else 7
         args = [
             self.binary,
             "-",  # read image from stdin

@@ -62,9 +62,9 @@ For anything other than careful block capitals, install TrOCR:
 That's it — no export step. The model (`microsoft/trocr-base-handwritten`)
 downloads and caches on first run, and `--backend auto` picks it up
 automatically. Expect ~3–8 s/line on a Pi 5 CPU — or ~0.6s with
-`--model-dir microsoft/trocr-small-handwritten`, measured with no accuracy
-loss on this project's own samples. See *Making it faster* below before
-assuming the base model is the only option.
+`--model-dir microsoft/trocr-small-handwritten`, which is measurably faster for
+a measurably real accuracy cost (CER 0.425 → 0.486). See *Making it faster*
+below for both numbers before picking one.
 
 **Optional speed-up.** Exporting to ONNX roughly halves latency, and the app
 prefers an exported model automatically when it finds one:
@@ -76,8 +76,10 @@ prefers an exported model automatically when it finds one:
     --out models/trocr-base-handwritten-onnx --quantize
 ```
 
-Skip this if `optimum` fights your torch version — it pins awkwardly against
-newer releases, and the torch path works fine without it.
+**Currently unusable on this Pi:** `optimum` is incompatible with torch 2.13
+(`_attention_scale` was removed from `torch.onnx.symbolic_opset14`), so the
+export above fails. The torch path needs no export and is what everything here
+is measured on — treat ONNX as a lead to revisit, not a step to follow.
 
 ## Using it
 
@@ -127,14 +129,16 @@ recognition pipeline:
 recognition speed (TrOCR — see "Making it faster"):
 --beams N                   beam width (default 1 = greedy; the checkpoints
                             ship 4, which costs ~4x the decode time)
---quantize                  load the model as dynamic int8, ~2x faster
+--quantize                  load the model as dynamic int8 (measured slower
+                            on this Pi — see "Making it faster")
 --image-size PX             run the vision encoder at PX by PX instead of 384
                             (224 is ~3x less encoder work; measure the accuracy)
 --max-tokens N              cap on characters generated per line (default 48)
 
 tesseract backend:
 --lang eng+deu              languages (needs tesseract-ocr-deu, etc.)
---psm N                     line segmentation (7 = one line, 13 = raw line)
+--psm N                     page segmentation mode, applied to every image
+                            (default: 8 for a word, 7 for a line)
 --whitelist 0123456789      restrict recognized characters
 
 --keep-ink                  don't clear the pad after each recognition

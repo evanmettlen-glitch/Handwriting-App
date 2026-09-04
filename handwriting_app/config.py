@@ -14,7 +14,7 @@ from handwriting_app.naming import user_slug
 class AppConfig:
     backend: str = "auto"  # auto -> trocr if its model is present, else tesseract
     lang: str = "eng"
-    psm: int = 7
+    psm: Optional[int] = None  # None = auto: 8 for a word image, 7 for a line
     whitelist: str = ""
     model_dir: str = ""  # "" -> auto-discover (see handwriting_app/models.py)
     user: str = ""
@@ -73,7 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--psm",
         type=int,
         default=AppConfig.psm,
-        help="Tesseract page segmentation mode for line images (7=line, 13=raw line).",
+        help="Tesseract page segmentation mode (7=line, 8=single word, 13=raw "
+        "line). Default picks per image: 8 for a word, 7 for a line. Setting "
+        "this applies it to every image.",
     )
     p.add_argument(
         "--whitelist",

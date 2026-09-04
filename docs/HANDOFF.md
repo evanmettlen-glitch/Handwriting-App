@@ -13,7 +13,7 @@ lines frequently are not. Three real bugs found by testing on the Pi this
 session and fixed — ink cleanup destroying cursive letters, `--quantize`
 crashing on ARM, and a benchmark that measured accuracy on an unrepresentative
 4-sample slice. See *Ink cleanup* and *Latency* before touching either area.
-25 commits, 129 tests passing (111+ on the Pi itself; 15 need a display and are
+27 commits, 132 tests passing (117 on the Pi itself; 15 need a display and are
 skipped over SSH).
 
 ---
@@ -310,9 +310,12 @@ Three things to hold onto:
   wrong reading be spotted before it finishes. The seconds themselves only come
   off with the model, int8, and patch-count levers above.
 
-`on_partial` is passed to `recognize()` only when a caller asks for partials, so
-a backend that cannot stream never sees the argument. Tesseract and the ONNX
-path both return whole lines and simply never call it. `--no-predict` drops the
+`on_partial` is passed to `recognize()` only when a caller asks for partials.
+The app always asks — `app.py` passes `on_partial=self._on_partial` on every
+run — so in practice every backend receives it; tesseract and the ONNX path
+accept it and simply never call it, since both return a whole line at once.
+The "only when asked" path matters for direct `pipeline.run(ink)` callers
+(`eval_backend`, `calibrate`), not for the app. `--no-predict` drops the
 guess; streaming itself is unconditional.
 
 Two implementation notes that are easy to undo by accident:
@@ -540,4 +543,4 @@ for v1 (recommend word-level); whether to register for IAM-OnDB now.
 - [README.md](../README.md) — install, flags, kiosk autostart, touch calibration
 - [docs/RECOGNITION.md](RECOGNITION.md) — approaches, tradeoffs, roadmap
 - [docs/PHASE3_SCOPE.md](PHASE3_SCOPE.md) — the stroke-model plan
-- Tests: `python -m pytest` (121, all passing)
+- Tests: `python -m pytest` (132, all passing)
