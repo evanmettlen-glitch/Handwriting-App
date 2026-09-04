@@ -47,9 +47,11 @@ class TrainingApp(tk.Tk):
         else:
             try:
                 self.prompts = load_prompts(config.prompts_file or None)
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
+                # A non-UTF-8 prompts file raises UnicodeDecodeError, which is a
+                # ValueError — not an OSError — and used to escape as a traceback.
                 raise SystemExit(f"Could not read prompts: {exc}")
-            self.target = len(self.prompts)
+            self.target = config.enroll_target or len(self.prompts)
         if not self.prompts:
             raise SystemExit("Prompt list is empty.")
 

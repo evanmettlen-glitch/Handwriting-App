@@ -102,9 +102,15 @@ def iter_samples(samples_dir: PathLike) -> Iterator[Sample]:
 
     A stray or half-written JSON file should not take down the app, the
     lexicon, or an evaluation run mid-way.
+
+    TypeError is in the list because well-formed JSON of the wrong *shape* is
+    the common case, not truncation: a file holding ``[1, 2, 3]`` parses fine,
+    then ``data["label"]`` raises TypeError rather than KeyError. Without it a
+    single stray file in data/samples takes down app startup, since the
+    personal lexicon is built by walking this iterator.
     """
     for path in sample_paths(samples_dir):
         try:
             yield load_sample(path)
-        except (KeyError, ValueError, OSError):
+        except (KeyError, TypeError, ValueError, OSError):
             continue

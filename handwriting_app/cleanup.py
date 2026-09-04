@@ -47,6 +47,7 @@ written without lifting the pen) and still wants real no-lift data to confirm.
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
@@ -149,6 +150,9 @@ def _low_rise_end(points: Sequence[Point], start: int, limit: float) -> int:
     and a couple of pixels of touch jitter make it look as flat as a drag. What
     separates the two is *cumulative* — over its whole length a traverse never
     leaves a narrow horizontal band, and no letter can say that.
+
+    Reference implementation, kept because it is obviously correct and is the
+    oracle :func:`_low_rise_ends` is property-tested against.
     """
     low = high = points[start][1]
     end = start
@@ -159,6 +163,55 @@ def _low_rise_end(points: Sequence[Point], start: int, limit: float) -> int:
         low, high = min(low, y), max(high, y)
         end += 1
     return end
+
+
+def _low_rise_ends(points: Sequence[Point], limit: float) -> List[int]:
+    """:func:`_low_rise_end` for every start index, in one linear pass.
+
+    Calling the reference version from each start is quadratic whenever the
+    windows are long, which happens exactly when a stroke contains a long flat
+    stretch — a scribbled-out word, a strikethrough, a slow underline. Measured
+    before this existed: a 4000-point stroke of that shape took **1.06 s** of
+    pure geometry, against a documented budget of "sub-millisecond".
+
+    The window end is monotone in ``start`` — dropping a point off the left can
+    only let the window reach further right — so one forward-only sweep does
+    it, with monotonic deques carrying the running min and max of ``y`` across
+    the window (each index is pushed and popped at most once).
+    """
+    count = len(points)
+    ends: List[int] = [0] * count
+    lows: deque = deque()  # indices, y increasing  -> front is the window minimum
+    highs: deque = deque()  # indices, y decreasing -> front is the window maximum
+    end = -1
+
+    for start in range(count):
+        if end < start:
+            # Window is empty: restart it on `start` itself.
+            end = start
+            lows.clear()
+            highs.clear()
+            lows.append(start)
+            highs.append(start)
+        while end + 1 < count:
+            y = points[end + 1][1]
+            low = min(points[lows[0]][1], y)
+            high = max(points[highs[0]][1], y)
+            if high - low > limit:
+                break
+            end += 1
+            while lows and points[lows[-1]][1] >= y:
+                lows.pop()
+            lows.append(end)
+            while highs and points[highs[-1]][1] <= y:
+                highs.pop()
+            highs.append(end)
+        ends[start] = end
+        if lows and lows[0] == start:
+            lows.popleft()
+        if highs and highs[0] == start:
+            highs.popleft()
+    return ends
 
 
 def _steps(points: Sequence[Point]) -> List[float]:
@@ -176,11 +229,50 @@ def typical_step(ink: Ink) -> float:
     return _percentile(steps, 0.5) if steps else 0.0
 
 
+def _prefix_abs_dx(points: Sequence[Point]) -> List[float]:
+    """Cumulative horizontal distance travelled, so any range is one subtraction."""
+    out = [0.0] * len(points)
+    for i in range(1, len(points)):
+        out[i] = out[i - 1] + abs(points[i][0] - points[i - 1][0])
+    return out
+
+
+def _prefix_reaches(points: Sequence[Point], size: float) -> List[bool]:
+    """Per index i: is ``points[:i+1]`` big enough to be writing rather than a nub?"""
+    out = [False] * len(points)
+    x0 = x1 = points[0][0]
+    y0 = y1 = points[0][1]
+    for i in range(1, len(points)):
+        x, y = points[i]
+        x0, x1 = min(x0, x), max(x1, x)
+        y0, y1 = min(y0, y), max(y1, y)
+        out[i] = math.hypot(x1 - x0, y1 - y0) >= size
+    return out
+
+
+def _suffix_reaches(points: Sequence[Point], size: float) -> List[bool]:
+    """Per index i: is ``points[i:]`` big enough to be writing rather than a nub?"""
+    count = len(points)
+    out = [False] * count
+    last = count - 1
+    x0 = x1 = points[last][0]
+    y0 = y1 = points[last][1]
+    for i in range(count - 2, -1, -1):
+        x, y = points[i]
+        x0, x1 = min(x0, x), max(x1, x)
+        y0, y1 = min(y0, y), max(y1, y)
+        out[i] = math.hypot(x1 - x0, y1 - y0) >= size
+    return out
+
+
 def _is_traverse(
-    span: Sequence[Point],
+    points: Sequence[Point],
+    a: int,
+    b: int,
     height: float,
     step: float,
     cfg: CleanupConfig,
+    absdx: Sequence[float],
     *,
     interior: bool = False,
 ) -> bool:
@@ -200,19 +292,29 @@ def _is_traverse(
     Both at once is a pen that never lifted between two words. Neither is worth
     guessing about, so the run has to be a full line height instead.
     """
-    chord = math.dist(span[0], span[-1])
-    strides = _steps(span)
-    fast = step > 0 and strides and max(strides) >= cfg.fast_ratio * step
-    lenient = fast and interior
-    if chord < (cfg.fast_min_length if lenient else cfg.min_length) * height:
+    chord = math.dist(points[a], points[b])
+    if chord < min(cfg.fast_min_length, cfg.min_length) * height:
         return False
 
     # Straightness in 2-D would be the obvious second test and it double-counts
     # the vertical wander the rise limit already caps — on a short traverse the
     # curl of the letters at either end then sinks it. What is left to check is
     # that the pen went one way: a scribbled-out word stays just as flat.
-    travelled = sum(abs(b[0] - a[0]) for a, b in zip(span, span[1:]))
-    return travelled > 0 and abs(span[-1][0] - span[0][0]) / travelled >= cfg.min_directness
+    #
+    # Done before the stride scan because this is the O(1) one and it is what a
+    # scribble fails. Order matters for speed, not for the answer.
+    travelled = absdx[b] - absdx[a]
+    if travelled <= 0:
+        return False
+    if abs(points[b][0] - points[a][0]) / travelled < cfg.min_directness:
+        return False
+
+    # The only scan left, and it runs just for runs that already look like a
+    # traverse — those are disjoint, so the total stays linear.
+    strides = _steps(points[a : b + 1])
+    fast = step > 0 and strides and max(strides) >= cfg.fast_ratio * step
+    lenient = fast and interior
+    return chord >= (cfg.fast_min_length if lenient else cfg.min_length) * height
 
 
 def find_traverses(
@@ -233,18 +335,27 @@ def find_traverses(
 
     limit = cfg.max_rise * height
     shortest = min(cfg.min_length, cfg.fast_min_length) * height
+    ends = _low_rise_ends(points, limit)
+
+    # Everything below has to be answerable in constant time per start, or the
+    # scan degrades to quadratic on exactly the input it most needs to survive:
+    # a long flat non-one-way run (a scribbled-out word, a strikethrough), where
+    # the window is long at *every* start and nothing short-circuits. Measured
+    # before these were precomputed, a 4000-point stroke of that shape cost
+    # 1.06 s of pure geometry.
+    fragment = cfg.min_fragment * height
+    head_big = _prefix_reaches(points, fragment)
+    tail_big = _suffix_reaches(points, fragment)
+    absdx = _prefix_abs_dx(points)
+
     runs: List[Tuple[int, int]] = []
     start = 0
     while start < len(points) - 1:
-        end = _low_rise_end(points, start, limit)
-        # Low-rise runs through writing are short, so the cheap length test
-        # rejects almost every position here and the scan stays near-linear.
+        end = ends[start]
         if end > start and math.dist(points[start], points[end]) >= shortest:
-            interior = _is_writing(points[: start + 1], height, cfg) and _is_writing(
-                points[end:], height, cfg
-            )
+            interior = head_big[start] and tail_big[end]
             if _is_traverse(
-                points[start : end + 1], height, step, cfg, interior=interior
+                points, start, end, height, step, cfg, absdx, interior=interior
             ):
                 runs.append((start, end))
                 start = end + 1

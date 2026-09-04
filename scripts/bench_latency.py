@@ -330,13 +330,18 @@ def main() -> None:
 
     print(
         "\nPick the fastest row above whose CER is not meaningfully worse than "
-        "the fp32/384px baseline for the model you'd actually ship. Measured on "
-        "the reference Pi, 2026-09-03: the model swap alone was the whole win "
-        "(trocr-small matched trocr-base's CER at ~1/7th the time); --quantize "
-        "was neutral-to-slower and once fixed from a hard crash still cost real "
-        "accuracy on base; --image-size 224 cost real accuracy on both models. "
-        "Don't assume any of that transfers to your hardware or handwriting —\n"
-        "this sweep is what answers it for you."
+        "the fp32/384px baseline for the model you'd actually ship.\n"
+        "\nMeasured on the reference Pi, 2026-09-03, over the FULL sample set "
+        "(eval_backend,\nnot a limited sweep): trocr-small runs ~6.8x faster "
+        "than trocr-base (4.21s -> 0.62s)\nfor natural-language CER 0.425 -> "
+        "0.486 — a real trade, not a free win. --quantize\nwas "
+        "neutral-to-slower once its ARM crash was fixed, and --image-size 224 "
+        "cost real\naccuracy on both models.\n"
+        "\nDon't assume any of that transfers to your hardware or handwriting. "
+        "And don't draw\naccuracy conclusions from a small --limit: this "
+        "dataset is sorted easiest-first, so a\nlimited sweep sees the easy "
+        "samples. Use eval_backend over everything for accuracy;\nuse this "
+        "sweep for speed."
     )
 
 

@@ -312,3 +312,44 @@ def test_disabling_cleanup_leaves_the_ink_alone():
     assert pipe.recognizer.images == 1  # one unbroken stroke, so one "word"
     assert pipe.last_cleanup is None
     assert "ink cleanup off" in pipe.notes
+
+
+# -- traverse scan: correctness of the linear window, and its cost ----------
+
+
+def test_the_linear_window_matches_the_naive_one_exactly():
+    """``_low_rise_ends`` replaces a per-start rescan with one sliding pass.
+    It has to agree with the obvious implementation on every start index, or
+    cleanup silently starts cutting different ink."""
+    import random
+
+    from handwriting_app.cleanup import _low_rise_end, _low_rise_ends
+
+    rng = random.Random(20260903)
+    for _ in range(400):
+        count = rng.randint(1, 40)
+        points = [(float(i), float(rng.randint(0, 12))) for i in range(count)]
+        limit = rng.choice([0.0, 0.5, 1.0, 3.0, 7.0, 100.0])
+        assert _low_rise_ends(points, limit) == [
+            _low_rise_end(points, i, limit) for i in range(count)
+        ]
+
+
+def test_a_long_scribble_does_not_take_seconds():
+    """Regression, measured 2026-09-03. A long flat non-one-way run — a
+    scribbled-out word, a strikethrough — kept every window long at every
+    start while short-circuiting nothing, so the scan went quadratic: a
+    4000-point stroke cost 1.06 s of pure geometry against a documented
+    "sub-millisecond" budget. The bound here is deliberately loose; it is
+    guarding an order of magnitude, not a stopwatch."""
+    import time
+
+    points = [(i * 2.0, 0.0 if i % 2 else 100.0) for i in range(2000)]
+    x = points[-1][0]
+    for i in range(2000):
+        x += 15.0 if (i // 10) % 2 == 0 else -14.0
+        points.append((x, 50.0 + (i % 4) * 3))
+
+    started = time.perf_counter()
+    clean_ink(_ink(points))
+    assert time.perf_counter() - started < 0.25

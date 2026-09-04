@@ -91,5 +91,8 @@ def load(samples_dir: str) -> Optional[Calibration]:
         return None
     try:
         return Calibration.from_dict(json.loads(target.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
+    except (OSError, TypeError, ValueError, AttributeError):
+        # Wrong-shape JSON (a list, a string) parses but then fails on attribute
+        # or item access. A hand-edited calibration.json must degrade to "no
+        # calibration", never take the recognizer down with it.
         return None
