@@ -128,3 +128,18 @@ def test_representative_never_indexes_past_the_end():
             picked = representative(samples, limit)
             assert len(picked) <= max(count, 1)
             assert all(p in samples for p in picked)
+
+
+def test_representative_returns_an_independent_list():
+    """calibrate.py mutates the returned list in place (samples[index] = ...
+    after cleaning ink). That must never write back into the caller's list,
+    whether or not a limit was applied."""
+    original = [_Labelled(str(i)) for i in range(5)]
+
+    limited = representative(original, 3)
+    limited[0] = _Labelled("changed")
+    assert original[0].label == "0"
+
+    unlimited = representative(original, 0)
+    unlimited[0] = _Labelled("changed")
+    assert original[0].label == "0"

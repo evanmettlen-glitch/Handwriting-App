@@ -27,7 +27,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from handwriting_app.cleanup import CleanupConfig, clean_ink
-from handwriting_app.dataset import iter_samples
+from handwriting_app.dataset import iter_samples, representative
 from handwriting_app.ink import Ink
 from handwriting_app.segmentation import segment_words
 
@@ -51,7 +51,14 @@ def parse_args() -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("--samples", default="data/samples")
-    p.add_argument("--limit", type=int, default=0)
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Use only N samples, spread across the set (not the first N "
+        "-- enrollment order is easiest-first: rote, then singles, then "
+        "multi-word lines).",
+    )
     p.add_argument("--dump-png", metavar="DIR", default="")
     p.add_argument(
         "--gap-ratio",
@@ -93,9 +100,7 @@ def score(samples, cfg: CleanupConfig, gap_ratio: float) -> tuple[int, int, floa
 
 def main() -> None:
     args = parse_args()
-    samples = list(iter_samples(args.samples))
-    if args.limit:
-        samples = samples[: args.limit]
+    samples = representative(list(iter_samples(args.samples)), args.limit)
     if not samples:
         raise SystemExit(f"No samples in {args.samples!r}")
 

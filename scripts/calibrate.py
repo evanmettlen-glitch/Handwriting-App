@@ -22,7 +22,7 @@ from typing import Dict
 from handwriting_app.calibration import Calibration, save
 from handwriting_app.cleanup import clean_ink
 from handwriting_app.config import AppConfig
-from handwriting_app.dataset import Sample, iter_samples
+from handwriting_app.dataset import Sample, iter_samples, representative
 from handwriting_app.pipeline import resolve_segment
 from handwriting_app.recognizer import build_recognizer
 from handwriting_app.segmentation import segment_words
@@ -57,7 +57,13 @@ def parse_args() -> argparse.Namespace:
         help="Tune against the raw strokes instead of the cleaned ink the app "
         "actually recognizes. Matches running the app with --no-cleanup.",
     )
-    p.add_argument("--limit", type=int, default=0, help="Only use the first N samples.")
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Use only N samples, spread across the set (not the first N — "
+        "enrollment order is easiest-first, see representative() in dataset.py).",
+    )
     p.add_argument(
         "--min-occurrences",
         type=int,
@@ -132,9 +138,7 @@ def recognize(recognizer, ink, *, deslant, stroke_width, pad, smooth, segment,
 def main() -> None:
     args = parse_args()
 
-    samples = list(iter_samples(args.samples))
-    if args.limit:
-        samples = samples[: args.limit]
+    samples = representative(list(iter_samples(args.samples)), args.limit)
     if not samples:
         raise SystemExit(
             f"No samples in {args.samples!r}. Collect some with ./run.sh --train"
