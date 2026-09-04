@@ -5,13 +5,16 @@ with a finger or stylus, get editable text. Fully offline.
 
 **Repo:** github.com/evanmettlen-glitch/Handwriting-App (public)
 **Hardware:** Raspberry Pi 5 "HomeHubSSD", HDMI display + USB touch panel
-**State as of 2026-09-03:** working end to end; accuracy is solid on this
-user's samples, latency is mostly solved (`--model-dir
-microsoft/trocr-small-handwritten` alone: 4.21s → 0.62s/line, zero measured
-accuracy cost). Two real bugs found by testing on the Pi this session and
-fixed — see *Ink cleanup* and *Latency* below before touching either.
-25 commits, 126 tests passing (111 on the Pi itself; the other 15 need a
-display and are skipped over SSH).
+**State as of 2026-09-03:** working end to end. **Latency is solved**
+(`--model-dir microsoft/trocr-small-handwritten`: 4.21s → 0.62s/line, for ~14%
+relatively worse CER). **Accuracy is now the open problem** — 0.425 CER and
+13/37 exact on natural-language samples: single words are perfect, multi-word
+lines frequently are not. Three real bugs found by testing on the Pi this
+session and fixed — ink cleanup destroying cursive letters, `--quantize`
+crashing on ARM, and a benchmark that measured accuracy on an unrepresentative
+4-sample slice. See *Ink cleanup* and *Latency* before touching either area.
+25 commits, 129 tests passing (111+ on the Pi itself; 15 need a display and are
+skipped over SSH).
 
 ---
 
@@ -20,16 +23,15 @@ display and are skipped over SSH).
 ```bash
 ssh evmett@HomeHubSSD
 cd ~/HandWritingApp
-./run.sh --model-dir microsoft/trocr-small-handwritten   # 6.8x faster, no measured accuracy cost
+./run.sh --model-dir microsoft/trocr-small-handwritten   # 6.8x faster, ~14% worse CER
 # add --fullscreen for kiosk mode
 ```
 
-Startup (model load + warm-up) measured **~6s** on the Pi this session for the
-default `trocr-base`, then ~4.2s/line at fp32 — but see *Latency* below before
-running the default: `--model-dir microsoft/trocr-small-handwritten` measured
-**6.8x faster with zero accuracy cost** on this user's samples, which makes it
-the actual recommendation, not a knob to consider later. The status line at the
-bottom tells you exactly what is active:
+Startup (model load + warm-up) measured **~6s** on the Pi for the default
+`trocr-base` (0.8s for small), then ~4.2s/line at fp32 vs **0.62s** for small.
+That speed comes at a real cost — natural-language CER 0.425 → 0.486 over the
+full sample set — so pick deliberately; *Latency* below has both tables. The
+status line at the bottom tells you exactly what is active:
 
 ```
 Ready · backend: trocr-torch:trocr-small-handwritten
@@ -168,12 +170,16 @@ word gaps unambiguous, which fixes segmentation as a side effect.
 | **Fine-tuning TrOCR on the enrollment set** | Measured: val CER **0.52 → 0.80** on 40 samples. It memorizes and generalizes worse. Needs 150–300+. |
 | **SymSpell compound mode for split letters** | Measured: `w i t h` → `a it a`, `a n d` → `an a`. Makes it worse. |
 
-### Latency — mostly solved 2026-09-03, was the open problem as of 2026-08-31
+### Latency — solved 2026-09-03, was the open problem as of 2026-08-31
 
-Accuracy is now acceptable; **time to result is the complaint**. The whole cost
-is TrOCR-base on a CPU — render, segmentation, and spell correction are
+**Time to result was the complaint; it is now fixed.** The whole cost is TrOCR
+on a CPU — render, cleanup, segmentation, and spell correction are all
 sub-millisecond. Measure with `python -m scripts.bench_latency`, which reports
 throttle state, a per-stage breakdown, and a speed-vs-CER sweep.
+
+Note the *accuracy* claim in the 2026-08-31 version of this section ("accuracy
+is now acceptable") did not survive being measured over the full sample set —
+see the accuracy table below. Speed is solved; accuracy is not.
 
 Shipped, no accuracy risk:
 
@@ -186,19 +192,42 @@ Shipped, no accuracy risk:
 **Measured on the Pi, 2026-09-03** — 8 samples, greedy decoding, temp 49°C,
 throttle clean:
 
-| Config | Median | CER | Verdict |
-|---|---|---|---|
-| base, 384px, fp32 | 4.21s | 0.000 | baseline |
-| base, 224px, fp32 | 3.25s | 0.917 | **broken** — position-embedding interpolation costs real accuracy |
-| base, 384px, int8 | 3.84s | **2.000** | **broken worse** — barely faster, output is garbage, see below |
-| small, 384px, fp32 | **0.62s** | 0.000 | **the win** — 6.8x faster, zero measured accuracy cost |
-| small, 224px, fp32 | 0.44s | 0.500 | broken for the same reason as base |
-| small, 384px, int8 | 0.81s | 0.000 | **slower than fp32**, no accuracy change — pure loss |
+**Speed**, from the sweep (8-sample subset — see the CER caveat below):
 
-**The model swap is the whole story.** `microsoft/trocr-small-handwritten`
-matched base exactly (CER 0.000 on both) at under a seventh of the time. The old
-table below called this "real accuracy risk" — that was an unmeasured guess, and
-it was wrong. **Shipped recommendation: `--model-dir microsoft/trocr-small-handwritten`, nothing else.**
+| Config | Median | Verdict |
+|---|---|---|
+| base, 384px, fp32 | 4.21s | baseline |
+| base, 224px, fp32 | 3.25s | rejected on accuracy |
+| base, 384px, int8 | 3.84s | rejected — output is garbage, see below |
+| small, 384px, fp32 | **0.62s** | **6.8x faster** |
+| small, 224px, fp32 | 0.44s | rejected on accuracy |
+| small, 384px, int8 | 0.81s | rejected — *slower* than fp32 |
+
+**Accuracy**, from `eval_backend` over **all 43 samples** (37 natural-language,
+6 rote) — this is the number to trust:
+
+| Model | natural-language CER (n=37) | exact | rote CER (n=6) |
+|---|---|---|---|
+| trocr-base-handwritten | **0.425** | 13/37 (35%) | 0.808 |
+| trocr-small-handwritten | **0.486** | 13/37 (35%) | 0.929 |
+
+**The model swap is a real trade, not a free win.** 6.8x faster for ~14%
+relatively worse CER, same count of exactly-correct lines. Defensible for a
+notes pad; not defensible to describe as free.
+
+> ⚠️ **A measurement trap that already produced one wrong conclusion — read
+> this before trusting any `--limit`ed run.** This section originally claimed
+> "CER 0.000 on both, zero accuracy cost". That came from
+> `bench_latency --limit 8`, which sliced the *first* 8 samples. Enrollment
+> order is graded — rote coverage, then single words, then multi-word lines —
+> so those 8 were 4 rote (excluded from CER by design) plus `the`, `and`,
+> `you`, `was`. The accuracy column was averaging **four one-word samples**
+> while all 21 multi-word samples, the ones that actually fail, went
+> unmeasured. `bench_latency` now uses `representative()` to spread picks
+> across the set, prints how many samples the CER covers, and warns loudly
+> below 10 scored samples. The lesson generalises: on this dataset, *any*
+> accuracy claim from a small limit is close to meaningless, because the
+> difficulty is sorted.
 
 **`--image-size` costs real accuracy, measured, not guessed.** ~25% faster
 matches the patch-count arithmetic (577→197 patches), but CER goes to 0.5-0.9 on
@@ -243,7 +272,7 @@ turned out to need correcting once actually measured:
 
 | Flag | Guessed effect | What measuring found |
 |---|---|---|
-| `--model-dir microsoft/trocr-small-handwritten` | ~5x less compute, "real accuracy risk" | 6.8x, **zero** accuracy cost |
+| `--model-dir microsoft/trocr-small-handwritten` | ~5x less compute, "real accuracy risk" | 6.8x for ~14% worse CER — the risk was real, just smaller than feared |
 | `--quantize` | ~2x faster | crashed on ARM until fixed; once fixed, slower-or-garbage |
 | `--image-size 224` | ~3x less encoder work, "needs measuring" | measured: not worth it, see above |
 | `--beams 1` | ~4x less decode — **already the default** | confirmed; the checkpoints ship `num_beams=4` |
@@ -474,7 +503,9 @@ progress bar, timer, and live a-z/A-Z/0-9 coverage. Designed for under 5 minutes
    real sample has exercised yet.
 1. **Done, 2026-09-03.** `bench_latency` swept model/beams/quantize/image-size
    on the Pi. Answer: `--model-dir microsoft/trocr-small-handwritten`, nothing
-   else — 6.8x faster, zero measured accuracy cost. `--quantize` and
+   else — 6.8x faster for ~14% relatively worse CER (0.425 -> 0.486 over the
+   full 43-sample set; the first pass claimed "zero cost" from an
+   unrepresentative 8-sample slice, since fixed). `--quantize` and
    `--image-size` both measured net-negative; see *Latency* above. Also fixed
    in passing: `--quantize` was hard-crashing on ARM (wrong torch backend
    engine), separately from being not worth using once it ran.

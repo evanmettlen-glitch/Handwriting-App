@@ -294,26 +294,46 @@ the accuracy column holds, so the two are always reported together.
 The levers, biggest first — **measured on the Pi, 2026-09-03**, 8 samples,
 greedy decoding, temp 49°C with a clean throttle state so the numbers are real:
 
-| Lever | Measured | Cost |
+| Lever | Speed | Accuracy (CER over **all 37** natural-language samples) |
 |---|---|---|
-| `--model-dir microsoft/trocr-small-handwritten` | **4.21s → 0.62s** (6.8x) | **none** — CER 0.000 on both, same as base |
+| `--model-dir microsoft/trocr-small-handwritten` | **4.21s → 0.62s** (6.8x) | 0.425 → **0.486** — a real cost, ~14% relative. Exact matches unchanged at 13/37 |
 | `--beams 1` (**already the default**) | ~4x less decode vs. the checkpoints' default of 4 | negligible |
-| `--image-size 224` | 4.21s → 3.25s on base | **not worth it** — CER 0.000 → 0.917. Measured, not a guess: don't use it |
-| `--quantize` | 0.62s → 0.81s on small; 4.21s → 3.84s on base | **not worth it** — slower on small, and destroys base's output entirely |
+| `--image-size 224` | 4.21s → 3.25s on base | **don't** — badly worse |
+| `--quantize` | 0.62s → 0.81s on small; 4.21s → 3.84s on base | **don't** — slower on small, and destroys base's output entirely |
 
-**The model swap is the whole story.** `trocr-small-handwritten` reads this
-user's handwriting exactly as well as `trocr-base` on the enrollment set (CER
-0.000, both) at under a seventh of the time. There was no tradeoff to make —
-just an unmeasured assumption ("most accuracy risk") that turned out to be
-wrong once actually run. **Recommended: `--model-dir microsoft/trocr-small-handwritten`, nothing else.**
+**The model swap is a real trade, not a free win.** 6.8x faster for ~14%
+relatively worse CER (0.425 → 0.486), with the same number of exactly-correct
+lines (13/37). Whether that is worth it is a judgement call about how the pad is
+used: for short notes you re-read anyway, 0.6s beats 4.2s comfortably; if you
+need the best reading the model can give, stay on base.
+
+> **How this number got corrected, because it matters.** The first version of
+> this table claimed "CER 0.000 on both, no accuracy cost". That came from
+> `bench_latency --limit 8`, which used to slice the *first* 8 samples — and
+> enrollment order is graded, so those were 4 rote prompts (excluded from CER)
+> plus `the`, `and`, `you`, `was`. The accuracy column was averaging four
+> one-word samples while all 21 multi-word samples went unmeasured. Re-running
+> over the full set gave the numbers above. `bench_latency` now spreads its
+> picks across the set and prints how many samples the CER actually covers,
+> with a loud warning under 10 — the tool made a wrong conclusion easy, so the
+> tool was fixed too, not just the number.
+
+**Accuracy is mediocre either way, and that is the real open problem.** 0.425
+CER with 13/37 exact is not a good reading of this handwriting — single words
+come out perfect, multi-word lines often do not (`'I will call you later'` →
+`'You Need .'`). Speed is now fine; accuracy on multi-word lines is what is
+left. See [docs/PHASE3_SCOPE.md](docs/PHASE3_SCOPE.md).
 
 **`--image-size` is not worth it, measured.** The vision encoder's cost is
 fixed per image and set by patch count — 384x384 is 577 patches, 224x224 is
-197 — so the ~25% wall-clock win is real. But CER went from 0.000 to 0.917 on
-the base model and 0.000 to 0.500 on small: the position-embedding
-interpolation this needs is not free on real handwriting. Left in the code
-(`--image-size PX`, off by default) because a different checkpoint or dataset
-might tolerate it better, but it is not part of the recommended setup.
+197 — so the ~25% wall-clock win is real. But on the 8-sample subset it was
+measured on, CER went from 0.000 to 0.917 on base and 0.000 to 0.500 on small.
+That subset is the unrepresentative one described above, so treat the exact
+figures as indicative — the *direction* is not in doubt (it made every sample
+it touched worse, on both models), which is enough to rule it out. The
+position-embedding interpolation it needs is not free on real handwriting.
+Left in the code (`--image-size PX`, off by default) in case a checkpoint
+fine-tuned at that resolution ever makes it viable.
 
 **`--quantize` is a net loss on this hardware, and it was also outright broken
 until this session.** Every attempt used to fail with `RuntimeError: unknown

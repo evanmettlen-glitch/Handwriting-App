@@ -210,9 +210,31 @@ def stage_breakdown(pipeline: RecognitionPipeline, sample: Sample) -> None:
 
 
 # -- part 2: sweep --------------------------------------------------------
+def representative(samples: Sequence[Sample], limit: int) -> List[Sample]:
+    """An evenly-spaced subset, rather than the first ``limit`` samples.
+
+    ``iter_samples`` yields enrollment order, which is deliberately graded:
+    rote coverage prompts first, then single words, then multi-word lines. So
+    slicing the front takes the *easiest* samples in the set — and because rote
+    prompts are excluded from CER, a small limit can leave the whole accuracy
+    column resting on a handful of one-word samples.
+
+    Measured 2026-09-03, and the reason this function exists: the old
+    ``--limit 8`` scored CER on exactly four samples — 'the', 'and', 'you',
+    'was' — while all 21 multi-word samples went unmeasured. That produced a
+    confident "CER 0.000, no accuracy cost" for a model swap which, measured
+    over the full set, actually cost 0.425 -> 0.486. Spacing the picks keeps a
+    limited run honest about what it is averaging.
+    """
+    if not limit or limit >= len(samples):
+        return list(samples)
+    step = len(samples) / limit
+    return [samples[min(len(samples) - 1, int(i * step))] for i in range(limit)]
+
+
 def measure(
     pipeline: RecognitionPipeline, samples: Sequence[Sample]
-) -> Tuple[List[float], Optional[float]]:
+) -> Tuple[List[float], Optional[float], int]:
     times: List[float] = []
     scores: List[float] = []
     for sample in samples:
@@ -221,17 +243,20 @@ def measure(
         times.append(time.perf_counter() - started)
         if not is_rote(sample.label):
             scores.append(cer(pred, sample.label))
-    return times, (statistics.mean(scores) if scores else None)
+    mean = statistics.mean(scores) if scores else None
+    return times, mean, len(scores)
 
 
 def main() -> None:
     args = parse_args()
 
-    samples = [s for s in iter_samples(args.samples)][: args.limit or None]
+    everything = list(iter_samples(args.samples))
+    samples = representative(everything, args.limit)
     if not samples:
         raise SystemExit(
             f"No samples in {args.samples!r}. Collect some with ./run.sh --train"
         )
+    scored = sum(1 for s in samples if not is_rote(s.label))
 
     report_hardware()
 
@@ -246,7 +271,23 @@ def main() -> None:
         if args.stages:
             return
 
-    print(f"sweep over {len(samples)} samples (median seconds per line)\n")
+    print(
+        f"sweep over {len(samples)} of {len(everything)} samples "
+        f"(median seconds per line)"
+    )
+    print(
+        f"CER is averaged over the {scored} natural-language sample(s) in that "
+        f"subset; rote prompts are timed but not scored."
+    )
+    if scored < 10:
+        print(
+            f"  !! {scored} scored sample(s) is too few to compare accuracy on — "
+            "the CER column\n"
+            "     below is indicative at best. Raise --limit (or drop it "
+            "entirely) before\n"
+            "     concluding anything about accuracy from this run."
+        )
+    print()
     header = (
         f"{'model':<30} {'beams':>5} {'int8':>5} {'px':>5} "
         f"{'median':>8} {'p90':>7} {'CER':>6}"
@@ -276,7 +317,7 @@ def main() -> None:
                         )
                         del recognizer, pipeline
                         continue
-                    times, mean_cer = measure(pipeline, samples)
+                    times, mean_cer, _ = measure(pipeline, samples)
                     median = statistics.median(times)
                     p90 = sorted(times)[max(0, int(len(times) * 0.9) - 1)]
                     cer_text = f"{mean_cer:.3f}" if mean_cer is not None else "   -- "
